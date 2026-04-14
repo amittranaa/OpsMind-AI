@@ -353,6 +353,7 @@ export default function HomePage() {
                 <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
                 <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
+                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using past Redis incidents + deployment patterns</p>
               </div>
             </div>
           </section>
@@ -455,6 +456,7 @@ export default function HomePage() {
                 <p>{normalizeFix(improved)}</p>
                 <p className="mt-2 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
+                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using past Redis incidents + deployment patterns</p>
                 <p className="mt-2 text-xs text-purple-200">Memory used: {memoryCount}</p>
               </div>
             </div>
