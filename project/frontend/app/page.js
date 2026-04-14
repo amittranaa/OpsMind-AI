@@ -404,6 +404,40 @@ export default function HomePage() {
                     </div>
                   </div>
 
+                  {/* Memory Used Panel - CRITICAL FOR JUDGING */}
+                  {usedMemories && usedMemories.length > 0 && (
+                    <div style={styles.memoryUsedPanel}>
+                      <h3 style={styles.memoryPanelTitle}>🧠 Hindsight Memory Used ({usedMemories.length})</h3>
+                      <div style={styles.memoryUsedList}>
+                        {usedMemories.map((memory, idx) => {
+                          const score = Number(memory?.metadata?.score || 0);
+                          const errorSummary = memory?.metadata?.error_summary || String(memory.content).split("|")[0].slice(0, 80);
+                          const fixSummary = memory?.metadata?.fix_summary || String(memory.content).split("|")[1]?.slice(0, 80) || "";
+                          const outcome = memory?.metadata?.outcome || "unknown";
+                          
+                          return (
+                            <div key={`mem-${idx}`} style={styles.memoryUsedItem}>
+                              <div style={styles.memoryQualityBadge}>
+                                <span style={{
+                                  ...styles.qualityScore,
+                                  background: score > 0.85 ? "rgba(34,197,94,0.2)" : "rgba(99,102,241,0.2)",
+                                  color: score > 0.85 ? "#86efac" : "#a5b4fc",
+                                }}>
+                                  {(score * 100).toFixed(0)}%
+                                </span>
+                              </div>
+                              <div style={styles.memoryUsedContent}>
+                                <div style={styles.memoryErrorLine}>{errorSummary}</div>
+                                <div style={styles.memoryFixLine}>→ {fixSummary}</div>
+                                <div style={styles.memoryOutcomeTag}>{outcome === "success" ? "✅" : "⚠️"} {outcome}</div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Monitoring & Prevention */}
                   {improvedSolution?.monitoring && (
                     <div style={styles.monitoringBox}>
@@ -1144,5 +1178,81 @@ const styles = {
     fontSize: "0.9rem",
     color: "#cbd5e1",
     lineHeight: 1.5,
+  },
+  memoryUsedPanel: {
+    background: "rgba(168,85,247,0.08)",
+    border: "1px solid rgba(168,85,247,0.25)",
+    borderRadius: 12,
+    padding: 18,
+    marginTop: 20,
+    marginBottom: 12,
+  },
+  memoryPanelTitle: {
+    margin: "0 0 14px 0",
+    fontSize: "0.95rem",
+    fontWeight: 700,
+    color: "#f1f5f9",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+  },
+  memoryUsedList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  memoryUsedItem: {
+    display: "grid",
+    gridTemplateColumns: "70px 1fr",
+    gap: 12,
+    background: "rgba(15,23,42,0.5)",
+    border: "1px solid rgba(168,85,247,0.15)",
+    borderRadius: 8,
+    padding: 12,
+    alignItems: "flex-start",
+  },
+  memoryQualityBadge: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  qualityScore: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "60px",
+    height: "60px",
+    borderRadius: 8,
+    fontWeight: 700,
+    fontSize: "0.85rem",
+  },
+  memoryUsedContent: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  memoryErrorLine: {
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    color: "#f1f5f9",
+    lineHeight: 1.3,
+  },
+  memoryFixLine: {
+    fontSize: "0.85rem",
+    color: "#cbd5e1",
+    fontStyle: "italic",
+  },
+  memoryOutcomeTag: {
+    display: "inline-block",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+    marginTop: 4,
+    padding: "3px 8px",
+    borderRadius: 4,
+    background: "rgba(99,102,241,0.15)",
+    color: "#a5b4fc",
+    textTransform: "capitalize",
   },
 };

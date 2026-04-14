@@ -130,14 +130,15 @@ export default async function handler(req, res) {
     let memories = [];
     try {
       memories = await cachedSearch(searchQuery, team_id);
-      console.log("MEMORIES:", memories?.length);
+      console.log("MEMORIES RETRIEVED:", memories?.length);
     } catch (e) {
       console.error("HINDSIGHT ERROR:", e);
       memories = [];
     }
 
+    // Filter for HIGH QUALITY memories only (score > 0.7)
     const filteredMemories = (Array.isArray(memories) ? memories : [])
-      .filter((m) => (m?.metadata?.score || 0) > 0.6)
+      .filter((m) => (m?.metadata?.score || 0) > 0.7)
       .slice(0, 5);
 
     const basePrompt = buildBasePrompt(conciseError);

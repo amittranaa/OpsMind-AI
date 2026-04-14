@@ -69,7 +69,13 @@ function localSearch(query, memories, teamId) {
     return memoryTeam === scopedTeam;
   });
 
-  const scored = scopedMemories
+  // Filter by quality first (score > 0.7)
+  const qualityMemories = scopedMemories.filter((memory) => {
+    const score = Number(memory?.metadata?.score || 0);
+    return score > 0.7;
+  });
+
+  const scored = qualityMemories
     .map((memory) => {
       const content = String(memory?.content || "").toLowerCase();
       const metadata = memory?.metadata || {};
@@ -86,7 +92,7 @@ function localSearch(query, memories, teamId) {
     .filter((entry) => entry.overlap > 0)
     .sort((a, b) => b.overlap - a.overlap);
 
-  return scored.map((entry) => entry.memory);
+  return scored.map((entry) => entry.memory).slice(0, 5);
 }
 
 export async function storeMemory(data) {
@@ -97,9 +103,23 @@ export async function storeMemory(data) {
     ts: Number(data?.ts || Date.now()),
   };
 
+  // Enhanced payload with full context
   const payload = {
+    // For search indexing
     content: `${scopedPayload.error} | ${scopedPayload.fix} | ${scopedPayload.outcome}`,
-    metadata: scopedPayload,
+    
+    // Rich metadata for complete context
+    metadata: {
+      ...scopedPayload,
+      // Ensure score is captured
+      score: Number(scopedPayload.score || 0.5),
+      // Categories for filtering
+      error_summary: String(scopedPayload.error || "").slice(0, 100),
+      fix_summary: String(scopedPayload.fix || "").slice(0, 100),
+      outcome: String(scopedPayload.outcome || "unknown").toLowerCase(),
+      // Timestamp for recency weighting
+      stored_at: Date.now(),
+    },
   };
 
   try {
@@ -172,10 +192,19 @@ export async function searchMemories(query, teamId = normalizeTeamId()) {
     const normalized = normalizeResponse(data);
 
     if (normalized.length > 0) {
-      return normalized.filter((memory) => {
-        const memoryTeam = String(memory?.metadata?.team_id || "");
-        return memoryTeam === scopedTeam;
-      });
+      // Filter by team AND quality (score > 0.7)
+      const filtered = normalized
+        .filter((memory) => {
+          const memoryTeam = String(memory?.metadata?.team_id || "");
+          return memoryTeam === scopedTeam;
+        })
+        .filter((memory) => {
+          const score = Number(memory?.metadata?.score || 0);
+          return score > 0.7;
+        })
+        .slice(0, 5);
+      
+      return filtered.length > 0 ? filtered : localSearch(query, await readLocalMemoryStore(), scopedTeam);
     }
 
     return localSearch(query, await readLocalMemoryStore(), scopedTeam);
