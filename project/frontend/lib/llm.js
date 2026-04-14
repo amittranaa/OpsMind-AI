@@ -1,9 +1,10 @@
 function getLLMMode() {
-  const explicitMode = String(process.env.LLM_MODE || "online").toLowerCase();
+  const explicitMode = String(process.env.LLM_MODE || "auto").toLowerCase();
+  const hasGroqKey = Boolean(process.env.GROQ_API_KEY);
 
   if (explicitMode === "online") return "online";
   if (explicitMode === "local") return "local";
-  return "online";
+  return hasGroqKey ? "online" : "local";
 }
 
 function localReasoningFallback(prompt) {
@@ -161,7 +162,8 @@ export async function callLLM(prompt) {
     }
   }
 
-  return lastError || { error: "LLM failed after retries" };
+  // Keep backend functional even if upstream model provider fails.
+  return localReasoningFallback(prompt);
 }
 
 export function getActiveLLMMode() {
