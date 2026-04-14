@@ -281,7 +281,7 @@ export default function HomePage() {
           <div className="flex items-center gap-3">
             <div className="flex h-12 w-12 items-center justify-center rounded-full border border-indigo-400/40 bg-slate-950/80 p-1 shadow-lg shadow-indigo-900/30">
               <img
-                src="/opsmind-logo.svg"
+                src="/opsmind-logo-v3.svg?v=20260415"
                 alt="OpsMind AI"
                 className="h-full w-full rounded-full object-contain"
               />
