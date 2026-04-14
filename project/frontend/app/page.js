@@ -3,17 +3,28 @@
 import { useEffect, useMemo, useState } from "react";
 
 const MOBILE_TABS = ["dashboard", "analyze", "memory", "insights"];
+const DESKTOP_TABS = ["dashboard", "incidents", "insights", "memory"];
 
 function normalizeFix(result) {
   if (!result) return "No response yet.";
   if (typeof result === "string") return result;
-  return result.fix || "No fix provided.";
+  if (typeof result.fix === "string") return result.fix;
+  if (result.fix && typeof result.fix === "object") {
+    const values = Object.values(result.fix).filter((value) => typeof value === "string");
+    return values.length ? values.join(" ") : "No fix provided.";
+  }
+  return "No fix provided.";
 }
 
 function normalizeRoot(result) {
   if (!result) return "Unknown";
   if (typeof result === "string") return result;
-  return result.root_cause || "Unknown";
+  if (typeof result.root_cause === "string") return result.root_cause;
+  if (result.root_cause && typeof result.root_cause === "object") {
+    const values = Object.values(result.root_cause).filter((value) => typeof value === "string");
+    return values.length ? values.join(" ") : "Unknown";
+  }
+  return "Unknown";
 }
 
 function normalizePatterns(result) {
@@ -55,6 +66,7 @@ export default function HomePage() {
     { summary: "API crash", status: "Failed" },
   ]);
   const [mobileTab, setMobileTab] = useState("analyze");
+  const [desktopTab, setDesktopTab] = useState("dashboard");
   const [showPalette, setShowPalette] = useState(false);
   const [commandInput, setCommandInput] = useState("");
   const [touchStartX, setTouchStartX] = useState(null);
@@ -251,21 +263,30 @@ export default function HomePage() {
 
     if (cmd.includes("memory")) {
       setMobileTab("memory");
+      setDesktopTab("memory");
       setCommandStatus("Navigated to Memory");
     }
     if (cmd.includes("insight")) {
       setMobileTab("insights");
+      setDesktopTab("insights");
       setCommandStatus("Navigated to Insights");
     }
     if (cmd.includes("dashboard")) {
       setMobileTab("dashboard");
+      setDesktopTab("dashboard");
       setCommandStatus("Navigated to Dashboard");
+    }
+    if (cmd.includes("incident")) {
+      setDesktopTab("incidents");
+      setMobileTab("analyze");
+      setCommandStatus("Navigated to Incidents");
     }
     if (cmd.startsWith("analyze ")) {
       const incident = value.trim().slice(8).trim();
       if (incident) {
         setError(incident);
         setMobileTab("analyze");
+        setDesktopTab("dashboard");
         setShowPalette(false);
         setCommandInput("");
         void analyzeIncident(incident);
@@ -274,6 +295,7 @@ export default function HomePage() {
     }
     if (cmd === "analyze") {
       setMobileTab("analyze");
+      setDesktopTab("dashboard");
       setCommandStatus("Ready to analyze");
     }
     if (cmd.includes("bootstrap")) {
@@ -375,14 +397,29 @@ export default function HomePage() {
       <div className="mx-auto hidden max-w-[1600px] grid-cols-[220px,1fr,320px] gap-6 px-8 py-6 lg:grid">
         <aside className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-4 shadow-card backdrop-blur">
           <nav className="space-y-2">
-            <button className="w-full rounded-xl bg-indigo-500/20 px-3 py-2 text-left text-sm font-medium text-indigo-200">Dashboard</button>
-            <button className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/70">Incidents</button>
-            <button className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/70">Insights</button>
-            <button className="w-full rounded-xl px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-800/70">Memory</button>
+            {DESKTOP_TABS.map((tab) => {
+              const active = desktopTab === tab;
+              const title = tab.charAt(0).toUpperCase() + tab.slice(1);
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setDesktopTab(tab)}
+                  className={`w-full rounded-xl px-3 py-2 text-left text-sm transition ${
+                    active
+                      ? "bg-indigo-500/20 font-medium text-indigo-200"
+                      : "text-slate-300 hover:bg-slate-800/70"
+                  }`}
+                >
+                  {title}
+                </button>
+              );
+            })}
           </nav>
         </aside>
 
         <main className="space-y-6">
+          {desktopTab === "dashboard" && (
+            <>
           <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
             <p className="text-xs uppercase tracking-wide text-slate-400">Input Command Bar</p>
             <div className="mt-3 flex items-start gap-3">
@@ -476,6 +513,84 @@ export default function HomePage() {
               </div>
             </article>
           </section>
+            </>
+          )}
+
+          {desktopTab === "incidents" && (
+            <>
+              <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
+                <p className="text-xs uppercase tracking-wide text-slate-400">Report Incident</p>
+                <div className="mt-3 flex items-start gap-3">
+                  <textarea
+                    value={error}
+                    onChange={(e) => setError(e.target.value)}
+                    placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
+                    className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
+                  />
+                  <button
+                    onClick={() => void analyzeIncident()}
+                    disabled={loading}
+                    className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {loading ? "Analyzing..." : "Analyze Incident"}
+                  </button>
+                </div>
+                {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
+              </section>
+
+              <section className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                <h3 className="text-lg font-semibold">Incident Feed</h3>
+                <div className="mt-3 space-y-2">
+                  {incidents.map((incident, idx) => (
+                    <div key={`${incident.summary}-tab-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
+                      <span>{incident.summary}</span>
+                      <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </>
+          )}
+
+          {desktopTab === "insights" && (
+            <section className="grid grid-cols-2 gap-6 pb-8">
+              <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                <h3 className="text-lg font-semibold">System Insights</h3>
+                <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                  <li>70% timeout issues</li>
+                  <li>Most failures after deploy</li>
+                  <li>Memory-backed fixes show higher confidence trend</li>
+                </ul>
+              </article>
+              <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                <h3 className="text-lg font-semibold">Current Analysis Snapshot</h3>
+                <p className="mt-3 text-sm text-slate-200">Root Cause: {normalizeRoot(improved || base)}</p>
+                <p className="mt-3 text-sm text-slate-100">{normalizeFix(improved || base)}</p>
+              </article>
+            </section>
+          )}
+
+          {desktopTab === "memory" && (
+            <section className="rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-lg font-semibold">Memory Details</h3>
+                <span className="rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-200">Top 3</span>
+              </div>
+              <div className="space-y-3">
+                {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory retrieved yet.</p>}
+                {memoryTop3.map((memory, idx) => (
+                  <div key={`memory-tab-${idx}-${memory?.id || "m"}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm">
+                    <p className="text-xs text-slate-400">Summary</p>
+                    <p className="mt-1 text-slate-100">{getSummary(memory)}</p>
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <span className="text-purple-200">Score {score(memory)}%</span>
+                      <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </main>
 
         <aside className="sticky top-24 h-fit rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">

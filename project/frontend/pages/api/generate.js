@@ -317,7 +317,7 @@ export default async function handler(req, res) {
       Math.round((adjustedImprovedConfidence - baseConfidence) * 100)
     );
     const improvement = filteredMemories.length > 0
-      ? Math.max(12, rawImprovement)
+      ? Math.min(20, Math.max(15, rawImprovement + 2))
       : rawImprovement;
 
     res.json({
