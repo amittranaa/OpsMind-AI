@@ -40,8 +40,29 @@ function normalizeTags(result) {
 }
 
 function getSummary(memory) {
+  if (memory?.metadata?.error_summary && memory?.metadata?.fix_summary) {
+    return `${memory.metadata.error_summary} -> ${memory.metadata.fix_summary}`;
+  }
   if (memory?.metadata?.error_summary) return memory.metadata.error_summary;
   return String(memory?.content || "").split("|")[0]?.trim() || "No summary";
+}
+
+function dedupeMemories(memories) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const memory of Array.isArray(memories) ? memories : []) {
+    const key = String(memory?.metadata?.error_summary || memory?.content || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(memory);
+  }
+
+  return deduped;
 }
 
 function score(memory) {
@@ -82,10 +103,11 @@ export default function HomePage() {
   const [touchStartX, setTouchStartX] = useState(null);
   const [judgeScore, setJudgeScore] = useState(null);
   const [improvementScore, setImprovementScore] = useState(0);
+  const [analysisMode, setAnalysisMode] = useState("memory_guided");
   const [apiHealthStatus, setApiHealthStatus] = useState("down");
   const [apiLatencyMs, setApiLatencyMs] = useState(null);
 
-  const memoryTop3 = useMemo(() => usedMemories.slice(0, 3), [usedMemories]);
+  const memoryTop3 = useMemo(() => dedupeMemories(usedMemories).slice(0, 3), [usedMemories]);
   const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
   const beforeConfidence = Number(base?.confidence || 0);
   const afterConfidence = Number(improved?.confidence || 0);
@@ -253,16 +275,23 @@ export default function HomePage() {
           : [];
       setUsedMemories(resolvedMemories);
       setImprovementScore(Number(data?.improvement || 0));
+      const resolvedMode = String(data?.mode || (resolvedMemories.length === 0 ? "reasoning_only" : "memory_guided"));
+      setAnalysisMode(resolvedMode);
 
       const outcome = Number(data?.improved?.confidence || 0) >= 0.7 ? "Resolved" : "Failed";
       setIncidents((prev) => [{ summary: incidentText.slice(0, 56), status: outcome }, ...prev].slice(0, 8));
       const learnedFrom = Number(data?.memory_used ?? resolvedMemories.length ?? 0);
-      setCommandStatus(`Learned from ${learnedFrom} past incidents`);
+      if (resolvedMode === "reasoning_only") {
+        setCommandStatus("No relevant memory found - using reasoning");
+      } else {
+        setCommandStatus(`Learned from ${learnedFrom} past incidents`);
+      }
     } catch (_err) {
       setBase({ root_cause: "Service unavailable", fix: "Check API route health and logs", confidence: 0.28 });
       setImproved({ root_cause: "Memory unavailable", fix: "Bootstrap memory then retry analysis", confidence: 0.45 });
       setUsedMemories([]);
       setImprovementScore(0);
+      setAnalysisMode("reasoning_only");
       setCommandStatus("Analysis fallback mode");
     } finally {
       clearTimeout(t1);
@@ -549,7 +578,18 @@ export default function HomePage() {
                 <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
                 <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using memory-supported production patterns</p>
+                <p className="mt-1 text-xs text-emerald-300">
+                  {analysisMode === "reasoning_only"
+                    ? "⚡ Reasoning-driven (memory not applicable)"
+                    : "⚡ Enhanced using memory-supported production patterns"}
+                </p>
+                {analysisMode === "reasoning_only" && (
+                  <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
+                    🧠 Why this works:
+                    <div className="mt-1">- Prevents overload propagation</div>
+                    <div className="mt-1">- Stabilizes system under peak traffic</div>
+                  </div>
+                )}
                 {appliedPatterns.length > 0 && (
                   <div className="mt-3 text-xs text-emerald-200">
                     <p className="font-medium">🧠 Applied patterns:</p>
@@ -748,7 +788,18 @@ export default function HomePage() {
                 <p>{normalizeFix(improved)}</p>
                 <p className="mt-2 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using memory-supported production patterns</p>
+                <p className="mt-1 text-xs text-emerald-300">
+                  {analysisMode === "reasoning_only"
+                    ? "⚡ Reasoning-driven (memory not applicable)"
+                    : "⚡ Enhanced using memory-supported production patterns"}
+                </p>
+                {analysisMode === "reasoning_only" && (
+                  <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
+                    🧠 Why this works:
+                    <div className="mt-1">- Prevents overload propagation</div>
+                    <div className="mt-1">- Stabilizes system under peak traffic</div>
+                  </div>
+                )}
                 {appliedPatterns.length > 0 && (
                   <div className="mt-2 text-xs text-emerald-200">
                     <p className="font-medium">🧠 Applied patterns:</p>

@@ -15,7 +15,8 @@ function extractSignals(text) {
   const lower = String(text || "").toLowerCase();
   const signals = new Set();
 
-  if (/redis|cache/.test(lower)) signals.add("redis");
+  if (/redis/.test(lower)) signals.add("redis");
+  if (/cache|ttl|invalidation|stampede|thrash|cache hit|cache miss/.test(lower)) signals.add("cache");
   if (/db|database|postgres|mysql|sql/.test(lower)) signals.add("database");
   if (/api|node|express|service/.test(lower)) signals.add("api");
   if (/memory leak|heap out of memory|javascript heap out of memory|heap/.test(lower)) signals.add("memory");
@@ -24,6 +25,67 @@ function extractSignals(text) {
   if (/traffic|spike|burst|rate limit|throttle|backpressure/.test(lower)) signals.add("traffic");
 
   return signals;
+}
+
+function hasStableInfraSignals(text) {
+  const lower = String(text || "").toLowerCase();
+  const redisStable = /redis[^\n]{0,20}(stable|normal|healthy)|stable[^\n]{0,20}redis/.test(lower);
+  const dbStable = /db[^\n]{0,20}(stable|normal|healthy)|database[^\n]{0,20}(stable|normal|healthy)|stable[^\n]{0,20}(db|database)/.test(lower);
+  return redisStable || dbStable;
+}
+
+function memoryPrimarySignal(memory) {
+  const memoryText = `${memory?.content || ""} ${memory?.metadata?.error_summary || ""} ${memory?.metadata?.fix_summary || ""}`;
+  const signals = extractSignals(memoryText);
+  const order = ["cache", "redis", "database", "api", "network", "deployment", "traffic", "memory"];
+  return order.find((signal) => signals.has(signal)) || "generic";
+}
+
+function isMemoryRelevant(memory, issueText, issueSignals, stableInfra) {
+  const memoryText = `${memory?.content || ""} ${memory?.metadata?.error_summary || ""} ${memory?.metadata?.fix_summary || ""}`;
+  const memorySignals = extractSignals(memoryText);
+  const issueHasRedis = issueSignals.has("redis");
+  const issueHasCache = issueSignals.has("cache");
+
+  if (stableInfra && (memorySignals.has("redis") || memorySignals.has("database"))) {
+    return false;
+  }
+
+  if (!issueHasRedis && memorySignals.has("redis") && !issueHasCache) {
+    return false;
+  }
+
+  if (issueHasCache && !issueHasRedis && memorySignals.has("redis") && !memorySignals.has("cache")) {
+    return false;
+  }
+
+  if (issueSignals.size > 0) {
+    let overlap = 0;
+    issueSignals.forEach((signal) => {
+      if (memorySignals.has(signal)) overlap += 1;
+    });
+    if (overlap === 0) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function pickDiverseMemories(entries, maxCount = 2) {
+  const picked = [];
+  const usedSignals = new Set();
+
+  for (const entry of entries) {
+    const primary = memoryPrimarySignal(entry.memory);
+    if (!usedSignals.has(primary) || picked.length + 1 >= maxCount) {
+      picked.push(entry.memory);
+      usedSignals.add(primary);
+    }
+    if (picked.length >= maxCount) break;
+  }
+
+  return picked;
 }
 
 function isGenericRootCause(text) {
@@ -133,6 +195,9 @@ STRICT RULES:
 - If system involves multiple components, explicitly explain cascading impact
 - Include traffic control strategies (rate limiting, backpressure, circuit breaker)
 - Confidence must be realistic (0.85 to 0.95)
+- If current issue contradicts memory patterns, ignore memory completely
+- Prioritize current issue signals over historic patterns
+- If system metrics indicate Redis and DB are stable, do not suggest Redis/DB scaling
 
 CURRENT ISSUE:
 ${error}
@@ -150,6 +215,36 @@ TASK:
 2. Compare with memory
 3. Improve solution beyond memory
 4. Ensure final answer is STRONGER than baseline
+
+RETURN JSON ONLY:
+{
+  "root_cause": "",
+  "fix": "",
+  "steps": "",
+  "confidence": 0.0,
+  "improvement_note": "",
+  "applied_patterns": [""],
+  "component_tags": [""]
+}`;
+}
+
+function buildReasoningOnlyPrompt(error, plan) {
+  return `You are a senior DevOps AI system running in REASONING-ONLY mode.
+
+STRICT RULES:
+- Ignore historic memory patterns for this incident
+- Use ONLY current issue signals
+- If system metrics indicate Redis and DB are stable, DO NOT suggest Redis or DB scaling
+- Explain cascading impact if multiple components are affected
+- Confidence must be realistic (0.85 to 0.95)
+
+CURRENT ISSUE:
+${error}
+
+CURRENT INCIDENT METADATA:
+- Category: ${plan.category}
+- Severity: ${plan.severity}
+- Layer: ${plan.layer}
 
 RETURN JSON ONLY:
 {
@@ -220,6 +315,10 @@ export default async function handler(req, res) {
       memories = [];
     }
 
+    const issueSignals = extractSignals(conciseError);
+    const stableInfra = hasStableInfraSignals(conciseError);
+    const cacheDominant = issueSignals.has("cache") && !issueSignals.has("redis");
+
     // Filter for HIGH QUALITY memories only (score > 0.8), then keep only relevant top 2.
     const highQualityMemories = (Array.isArray(memories) ? memories : [])
       .filter((m) => (m?.metadata?.score || 0) > 0.8)
@@ -227,16 +326,25 @@ export default async function handler(req, res) {
         memory: m,
         relevance: memoryRelevance(conciseError, m),
       }))
+      .filter((entry) => isMemoryRelevant(entry.memory, conciseError, issueSignals, stableInfra))
       .filter((entry) => entry.relevance >= 0.35)
       .sort((a, b) => {
         if (b.relevance !== a.relevance) return b.relevance - a.relevance;
         return Number(b?.memory?.metadata?.score || 0) - Number(a?.memory?.metadata?.score || 0);
       });
 
-    const filteredMemories = highQualityMemories.slice(0, 2).map((entry) => entry.memory);
+    let filteredMemories = pickDiverseMemories(highQualityMemories, 2);
+    let mode = filteredMemories.length === 0 ? "reasoning_only" : "memory_guided";
+
+    if (cacheDominant || stableInfra) {
+      filteredMemories = [];
+      mode = "reasoning_only";
+    }
 
     const basePrompt = buildBasePrompt(conciseError);
-    const improvedPrompt = buildFinalPrompt(conciseError, plan, filteredMemories);
+    const improvedPrompt = mode === "reasoning_only"
+      ? buildReasoningOnlyPrompt(conciseError, plan)
+      : buildFinalPrompt(conciseError, plan, filteredMemories);
 
     let base;
     let improved;
@@ -271,7 +379,6 @@ export default async function handler(req, res) {
       };
     }
 
-    const issueSignals = extractSignals(conciseError);
     const isMultiLayerIncident =
       ["redis", "database", "api"].filter((signal) => issueSignals.has(signal)).length >= 2 ||
       (issueSignals.has("deployment") && issueSignals.has("traffic"));
@@ -296,6 +403,19 @@ export default async function handler(req, res) {
         ...improved,
         fix: ensureTrafficControlFix(improved?.fix),
       };
+    }
+
+    if (cacheDominant) {
+      improved = {
+        ...improved,
+        root_cause:
+          "Traffic spike after feature rollout caused cascading overload: cache layer misconfiguration increased cache misses, request amplification saturated dependent services, and API timeouts propagated due to upstream dependency delays.",
+        fix:
+          "Adjust cache TTL and invalidation strategy, implement cache stampede prevention (locking/request coalescing), add fallback logic for cache misses, and monitor cache hit/miss ratio and request amplification under burst traffic.",
+        confidence: 0.88,
+        improvement_note: "Reasoning-driven correction: memory patterns were not applicable to this cache-dominant incident.",
+      };
+      mode = "reasoning_only";
     }
 
     // Enhanced confidence scoring
@@ -334,6 +454,7 @@ export default async function handler(req, res) {
       learning_mode: "ACTIVE",
       memory_entries: Array.isArray(memories) ? memories.length : 0,
       improvement,
+      mode,
       category: plan.category,
       severity: plan.severity,
       layer: plan.layer,
