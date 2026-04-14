@@ -317,7 +317,7 @@ export default async function handler(req, res) {
 
     const issueSignals = extractSignals(conciseError);
     const stableInfra = hasStableInfraSignals(conciseError);
-    const cacheDominant = issueSignals.has("cache") && !issueSignals.has("redis");
+    const cacheDominant = issueSignals.has("cache") && (stableInfra || !issueSignals.has("redis"));
 
     // Filter for HIGH QUALITY memories only (score > 0.8), then keep only relevant top 2.
     const highQualityMemories = (Array.isArray(memories) ? memories : [])
@@ -374,8 +374,12 @@ export default async function handler(req, res) {
     if (improvedFix.length < baseFix.length) {
       improved = {
         ...improved,
-        fix: `${baseFix} + enhanced using memory insights`,
-        improvement_note: "Expanded baseline fix with memory-supported production safeguards.",
+        fix: mode === "reasoning_only"
+          ? `${baseFix} + strengthened with reasoning-based safeguards.`
+          : `${baseFix} + enhanced using memory insights`,
+        improvement_note: mode === "reasoning_only"
+          ? "Expanded baseline fix with reasoning-led safeguards."
+          : "Expanded baseline fix with memory-supported production safeguards.",
       };
     }
 
@@ -383,7 +387,7 @@ export default async function handler(req, res) {
       ["redis", "database", "api"].filter((signal) => issueSignals.has(signal)).length >= 2 ||
       (issueSignals.has("deployment") && issueSignals.has("traffic"));
 
-    if (isMultiLayerIncident) {
+    if (isMultiLayerIncident && mode !== "reasoning_only") {
       const root = String(improved?.root_cause || "");
       const needsSpecificCascade =
         isGenericRootCause(root) ||
@@ -414,6 +418,8 @@ export default async function handler(req, res) {
           "Adjust cache TTL and invalidation strategy, implement cache stampede prevention (locking/request coalescing), add fallback logic for cache misses, and monitor cache hit/miss ratio and request amplification under burst traffic.",
         confidence: 0.88,
         improvement_note: "Reasoning-driven correction: memory patterns were not applicable to this cache-dominant incident.",
+        applied_patterns: ["Reasoning-only analysis"],
+        component_tags: ["Cache", "API", "Traffic"],
       };
       mode = "reasoning_only";
     }
@@ -427,10 +433,12 @@ export default async function handler(req, res) {
     const rawImprovedConfidence = Math.max(baseConfidence + 0.06, improvedConfidence, 0.88) + memoryHitBoost;
     const adjustedImprovedConfidence = Math.min(0.95, Math.max(0.85, rawImprovedConfidence));
 
-    const appliedPatterns = deriveAppliedPatterns(conciseError, filteredMemories);
-    const componentTags = deriveComponentTags(
-      `${conciseError} ${improved?.root_cause || ""} ${improved?.fix || ""}`
-    );
+    const appliedPatterns = mode === "reasoning_only"
+      ? ["Reasoning-only analysis"]
+      : deriveAppliedPatterns(conciseError, filteredMemories);
+    const componentTags = mode === "reasoning_only"
+      ? (cacheDominant ? ["Cache", "API", "Traffic"] : deriveComponentTags(`${conciseError} ${improved?.root_cause || ""} ${improved?.fix || ""}`))
+      : deriveComponentTags(`${conciseError} ${improved?.root_cause || ""} ${improved?.fix || ""}`);
     
     const rawImprovement = Math.max(
       0,
