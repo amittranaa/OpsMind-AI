@@ -256,16 +256,16 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-slate-800/90 bg-[#0f172a]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1.5">
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1">
               <img
-                src="/opsmind-logo.svg"
+                src="/opsmind-mark.svg"
                 alt="OpsMind AI"
                 className="h-full w-full object-contain"
               />
             </div>
             <div>
               <h1 className="text-base font-semibold text-slate-100 md:text-lg">OpsMind AI</h1>
-              <p className="text-[11px] text-slate-400 md:text-xs">Incident Intelligence Platform</p>
+              <p className="text-[11px] text-slate-400 md:text-xs">AI Agent Incident Intelligence Platform</p>
             </div>
           </div>
 
@@ -282,6 +282,13 @@ export default function HomePage() {
             <span className="rounded-full border border-green-500/40 bg-green-500/15 px-2.5 py-1 text-green-300">Learning Active</span>
             <span className="rounded-full border border-purple-500/40 bg-purple-500/15 px-2.5 py-1 text-purple-200">Memory {memoryCount}</span>
             <span className="rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1">ops-user</span>
+          </div>
+        </div>
+        <div className="border-t border-slate-800/70 bg-slate-950/35 px-4 py-2 lg:px-8">
+          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <span>Control Plane: opsmind-default</span>
+            <span>Inference: memory-guided reasoning active</span>
+            <span>SLO Guard: latency + error budget tracking</span>
           </div>
         </div>
       </header>
@@ -504,10 +511,20 @@ export default function HomePage() {
         <button className={`flex flex-col items-center ${mobileTab === "insights" ? "text-indigo-400" : "text-slate-300"}`} onClick={() => setMobileTab("insights")}>📊 <span>Insights</span></button>
       </div>
 
-      <footer className="hidden border-t border-slate-800 bg-[#0d1527] lg:block">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-8 py-4 text-xs text-slate-400">
-          <span>OpsMind AI © 2026</span>
-          <span>Powered by Hindsight + Groq</span>
+      <footer className="border-t border-slate-800 bg-[#0d1527]">
+        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-4 px-4 py-5 text-xs text-slate-400 md:grid-cols-3 lg:px-8">
+          <div>
+            <p className="font-semibold text-slate-200">OpsMind AI</p>
+            <p className="mt-1">Advanced DevOps agent for incident triage, memory-backed diagnosis, and production-safe remediation.</p>
+          </div>
+          <div>
+            <p className="font-semibold text-slate-200">Platform</p>
+            <p className="mt-1">Learning loop active • Memory scoring • Judge scenario scorecard endpoint</p>
+          </div>
+          <div className="md:text-right">
+            <p>OpsMind AI © 2026</p>
+            <p className="mt-1">Powered by Hindsight + Groq</p>
+          </div>
         </div>
       </footer>
 
