@@ -129,15 +129,3 @@ This is not a chatbot. It’s a system that learns from outcomes and improves ov
 4. Submit feedback:
    POST /api/feedback with same headers and outcome success
 
-## Why This Wins
-
-- Strong innovation through multi-agent architecture
-- Clear Hindsight memory usage
-- Real-world DevOps relevance
-- Clean SaaS UX with obvious learning proof
-
-## Risks
-
-- Overcomplicated UI reduces operational clarity
-- Broken workflow undercuts trust
-- No visible improvement weakens the learning claim
