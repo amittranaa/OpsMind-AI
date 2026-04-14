@@ -1,6 +1,7 @@
 const withPWA = require("next-pwa")({
   dest: "public",
-  disable: process.env.NODE_ENV === "development",
+  // Keep disabled by default to avoid stale service-worker UI cache.
+  disable: process.env.ENABLE_PWA !== "true",
 });
 
 /** @type {import('next').NextConfig} */

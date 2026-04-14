@@ -69,6 +69,36 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    // One-time cleanup to prevent stale PWA cache from serving older UI builds.
+    async function resetStalePWA() {
+      if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
+        return;
+      }
+
+      const key = "opsmind-sw-reset-v2";
+      if (window.localStorage.getItem(key) === "done") {
+        return;
+      }
+
+      try {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((reg) => reg.unregister()));
+
+        if (window.caches && typeof window.caches.keys === "function") {
+          const cacheNames = await window.caches.keys();
+          await Promise.all(cacheNames.map((name) => window.caches.delete(name)));
+        }
+      } catch {
+        // Ignore cleanup errors; app should still render with network assets.
+      } finally {
+        window.localStorage.setItem(key, "done");
+      }
+    }
+
+    void resetStalePWA();
+  }, []);
+
+  useEffect(() => {
     if (!commandStatus) return;
     const timer = setTimeout(() => setCommandStatus(""), 2400);
     return () => clearTimeout(timer);
@@ -215,7 +245,13 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-slate-800/90 bg-[#0f172a]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-400/40 bg-indigo-500/20 text-sm font-bold text-indigo-200">OA</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1.5">
+              <img
+                src="/opsmind-logo.svg"
+                alt="OpsMind AI"
+                className="h-full w-full object-contain"
+              />
+            </div>
             <div>
               <h1 className="text-base font-semibold text-slate-100 md:text-lg">OpsMind AI</h1>
               <p className="text-[11px] text-slate-400 md:text-xs">Incident Intelligence Platform</p>
