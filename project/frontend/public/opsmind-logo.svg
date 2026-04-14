@@ -1,0 +1,39 @@
+<svg width="900" height="280" viewBox="0 0 900 280" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">OpsMind AI logo</title>
+  <desc id="desc">A gear and circuit brain symbol with a gradient wordmark.</desc>
+  <defs>
+    <linearGradient id="brandBlue" x1="48" y1="28" x2="190" y2="196" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2DD4BF"/>
+      <stop offset="0.48" stop-color="#1982E0"/>
+      <stop offset="1" stop-color="#1E1B8F"/>
+    </linearGradient>
+    <linearGradient id="brandPurple" x1="194" y1="36" x2="336" y2="204" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C3AED"/>
+      <stop offset="0.45" stop-color="#8B5CF6"/>
+      <stop offset="1" stop-color="#2563EB"/>
+    </linearGradient>
+    <linearGradient id="wordmark" x1="38" y1="0" x2="820" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1D9BF0"/>
+      <stop offset="0.52" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(26 22)">
+    <circle cx="128" cy="108" r="56" stroke="url(#brandBlue)" stroke-width="20"/>
+    <path d="M128 18C94.3 18 68 44.3 68 78c0 12.5 3.8 24 10.4 33.6L60 130l17 29 20-11.5c8.5 6.1 18.4 10.6 29.1 12.9V182h38v-21.6c10.7-2.3 20.6-6.8 29.1-12.9L213 159l17-29-18.4-18.4C217.2 102 220 90.4 220 78c0-33.7-26.3-60-60-60h-32z" stroke="url(#brandBlue)" stroke-width="18" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/>
+    <path d="M181 74h34" stroke="white" stroke-width="9" stroke-linecap="round" opacity="0.96"/>
+    <path d="M122 108h108" stroke="url(#brandPurple)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M122 141h96" stroke="url(#brandPurple)" stroke-width="10" stroke-linecap="round"/>
+    <path d="M122 174h74" stroke="url(#brandPurple)" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="228" cy="74" r="11" fill="#2DD4BF" stroke="white" stroke-width="7"/>
+    <circle cx="225" cy="108" r="11" fill="#8B5CF6" stroke="white" stroke-width="7"/>
+    <circle cx="211" cy="174" r="11" fill="#2DD4BF" stroke="white" stroke-width="7"/>
+    <path d="M156 24v26" stroke="url(#brandPurple)" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="156" cy="18" r="11" fill="#7C3AED" stroke="white" stroke-width="7"/>
+    <path d="M185 192c0 10-8 18-18 18" stroke="url(#brandPurple)" stroke-width="10" stroke-linecap="round"/>
+    <circle cx="164" cy="210" r="11" fill="#2563EB" stroke="white" stroke-width="7"/>
+  </g>
+  <text x="26" y="254" fill="url(#wordmark)" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="86" font-weight="800" letter-spacing="-2.5">
+    OpsMind AI
+  </text>
+</svg>

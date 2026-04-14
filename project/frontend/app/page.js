@@ -208,16 +208,19 @@ export default function HomePage() {
 
   return (
     <main style={styles.page}>
-      <div style={{ ...styles.layout, gridTemplateColumns: isMobile ? "1fr" : "240px 1fr" }}>
+      <div style={{ ...styles.layout, gridTemplateColumns: isMobile ? "1fr" : "minmax(240px, 280px) minmax(0, 1fr)" }}>
         <aside
           style={{
             ...styles.sidebar,
             position: isMobile ? "static" : "sticky",
           }}
         >
-          <div>
-            <div style={styles.logo}>OpsMind AI</div>
-            <p style={styles.logoSub}>AI DevOps Command Center</p>
+          <div style={styles.brandBlock}>
+            <img src="/opsmind-logo.svg" alt="OpsMind AI logo" style={styles.brandLogo} />
+            <div>
+              <div style={styles.logo}>OpsMind AI</div>
+              <p style={styles.logoSub}>AI DevOps Command Center</p>
+            </div>
           </div>
 
           <nav style={styles.menu}>
@@ -228,11 +231,25 @@ export default function HomePage() {
         </aside>
 
         <section style={styles.content}>
-          <header style={styles.topbar}>
-            <h1 style={styles.title}>Incident Intelligence</h1>
+          <header
+            style={{
+              ...styles.topbar,
+              alignItems: isMobile ? "flex-start" : "center",
+              flexDirection: isMobile ? "column" : "row",
+            }}
+          >
+            <div style={styles.topbarTitleRow}>
+              <img src="/opsmind-logo.svg" alt="OpsMind AI" style={styles.topbarLogo} />
+              <div>
+                <h1 style={styles.title}>Incident Intelligence</h1>
+                <p style={styles.topbarSub}>Incident workflow that learns across teams and deployments.</p>
+              </div>
+            </div>
             <div style={styles.topbarActions}>
               <span style={styles.learningBadge}>Learning Mode: {learningMode}</span>
-                <button type="button" style={styles.seedButton} onClick={handleBootstrap}>Bootstrap Knowledge Base</button>
+              <button type="button" style={{ ...styles.seedButton, width: isMobile ? "100%" : "auto" }} onClick={handleBootstrap}>
+                Bootstrap Knowledge Base
+              </button>
             </div>
           </header>
 
@@ -314,11 +331,21 @@ export default function HomePage() {
             </ul>
           </section>
 
-          <section style={styles.actionRow}>
-            <button type="button" style={styles.successButton} onClick={() => sendFeedback("success")} disabled={!feedbackEnabled}>
+          <section style={{ ...styles.actionRow, flexDirection: isMobile ? "column" : "row" }}>
+            <button
+              type="button"
+              style={{ ...styles.successButton, width: isMobile ? "100%" : "auto" }}
+              onClick={() => sendFeedback("success")}
+              disabled={!feedbackEnabled}
+            >
               ✅ Worked
             </button>
-            <button type="button" style={styles.failButton} onClick={() => sendFeedback("failed")} disabled={!feedbackEnabled}>
+            <button
+              type="button"
+              style={{ ...styles.failButton, width: isMobile ? "100%" : "auto" }}
+              onClick={() => sendFeedback("failed")}
+              disabled={!feedbackEnabled}
+            >
               ❌ Failed
             </button>
           </section>
@@ -378,6 +405,20 @@ const styles = {
     position: "sticky",
     top: 20,
   },
+  brandBlock: {
+    display: "flex",
+    alignItems: "center",
+    gap: 14,
+    paddingBottom: 18,
+    marginBottom: 18,
+    borderBottom: "1px solid rgba(148,163,184,0.18)",
+  },
+  brandLogo: {
+    width: 92,
+    height: "auto",
+    display: "block",
+    flexShrink: 0,
+  },
   logo: {
     fontSize: "1.35rem",
     fontWeight: 700,
@@ -428,10 +469,27 @@ const styles = {
     flexWrap: "wrap",
     animation: "fadeSlideIn 340ms ease both",
   },
+  topbarTitleRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  topbarLogo: {
+    width: 44,
+    height: 44,
+    display: "block",
+    flexShrink: 0,
+  },
   title: {
     margin: 0,
-    fontSize: "1.8rem",
+    fontSize: "clamp(1.45rem, 2.3vw, 1.9rem)",
     letterSpacing: "-0.02em",
+  },
+  topbarSub: {
+    margin: "4px 0 0",
+    color: "#64748b",
+    fontSize: "0.95rem",
+    lineHeight: 1.4,
   },
   learningBadge: {
     display: "inline-flex",

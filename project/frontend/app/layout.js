@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "Hindsight DevOps Assistant",
-  description: "Incident learning with memory-backed fix generation",
+  title: "OpsMind AI",
+  description: "AI DevOps incident intelligence with memory-backed fix generation",
 };
 
 export default function RootLayout({ children }) {
