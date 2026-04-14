@@ -1,17 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 
 function formatResponse(result) {
-  if (!result) {
-    return "No result yet.";
-  }
-
-  if (typeof result === "string") {
-    return result;
-  }
-
-  return `Root Cause: ${result.root_cause || "Unknown"}\nFix: ${result.fix || "No fix"}\nSteps: ${result.steps || "-"}\nConfidence: ${result.confidence ?? 0}`;
+  if (!result) return "No result yet.";
+  if (typeof result === "string") return result;
+  return `Root Cause: ${result.root_cause || "Unknown"}\nFix: ${result.fix || "No fix"}\nSteps: ${result.steps || "-"}\nConfidence: ${(result.confidence ?? 0).toFixed(2)}`;
 }
 
 function parseMemoryContent(content) {
@@ -21,34 +15,17 @@ function parseMemoryContent(content) {
 
 function summarizeError(error) {
   const compact = String(error || "").trim().replace(/\s+/g, " ");
-  return compact.length > 64 ? `${compact.slice(0, 64)}...` : compact;
-}
-
-function buildInsights(incidents, category) {
-  if (!incidents.length) {
-    return [
-      "Common failure types appear here after your first analyzed incident.",
-      "Recommendations are generated from recent outcomes and memory confidence.",
-    ];
-  }
-
-  const failedCount = incidents.filter((item) => item.status === "Failed").length;
-  const resolvedCount = incidents.filter((item) => item.status === "Resolved").length;
-
-  return [
-    `Common failure type trend: ${String(category || "unknown").toLowerCase()}.`,
-    `Recent outcomes: ${resolvedCount} resolved and ${failedCount} failed incidents.`,
-    "Recommendation: capture concrete remediation steps for failed incidents to improve retrieval quality.",
-  ];
+  return compact.length > 80 ? `${compact.slice(0, 80)}...` : compact;
 }
 
 export default function HomePage() {
+  // State Management
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState("Describe an issue, run analysis, then send feedback.");
+  const [status, setStatus] = useState("Ready to analyze incidents");
   const [category, setCategory] = useState("UNKNOWN");
-  const [baseSolution, setBaseSolution] = useState("No result yet.");
-  const [improvedSolution, setImprovedSolution] = useState("No result yet.");
+  const [baseSolution, setBaseSolution] = useState(null);
+  const [improvedSolution, setImprovedSolution] = useState(null);
   const [usedMemories, setUsedMemories] = useState([]);
   const [learningMode, setLearningMode] = useState("ACTIVE");
   const [feedbackEnabled, setFeedbackEnabled] = useState(false);
@@ -56,16 +33,28 @@ export default function HomePage() {
   const [isMobile, setIsMobile] = useState(false);
   const [teamId, setTeamId] = useState("opsmind-default");
   const [userId, setUserId] = useState("ops-user");
+  const [confidence, setConfidence] = useState(0);
+  const [memoryUsed, setMemoryUsed] = useState(0);
+  const [showStats, setShowStats] = useState(false);
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [errorMessage, setErrorMessage] = useState("");
+  const textAreaRef = useRef(null);
 
-  const insights = useMemo(() => buildInsights(incidentFeed, category), [incidentFeed, category]);
+  // Computed values
+  const resolvedCount = useMemo(() => incidentFeed.filter((i) => i.status === "Resolved").length, [incidentFeed]);
+  const failedCount = useMemo(() => incidentFeed.filter((i) => i.status === "Failed").length, [incidentFeed]);
+  const totalCount = incidentFeed.length;
+  const successRate = totalCount ? ((resolvedCount / totalCount) * 100).toFixed(0) : 0;
 
+  // Responsive handling
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 960);
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
     handleResize();
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
 
+  // Auth headers with team/user context
   useEffect(() => {
     const savedTeam = window.localStorage.getItem("team_id") || "opsmind-default";
     const savedUser = window.localStorage.getItem("user_id") || "ops-user";
@@ -84,94 +73,99 @@ export default function HomePage() {
     };
   }
 
+  // Bootstrap knowledge base
   async function handleBootstrap() {
-    setStatus("Bootstrapping knowledge base...");
-
+    setStatus("🚀 Bootstrapping knowledge base...");
+    setErrorMessage("");
     try {
       const res = await fetch("/api/bootstrap", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(),
-        },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
       });
-
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Bootstrap failed");
-      }
-
-      setStatus(`Knowledge base bootstrapped with ${data.count} baseline incidents for ${data.team_id}.`);
+      if (!res.ok) throw new Error(data.error || "Bootstrap failed");
+      setStatus(`✅ Knowledge base ready with ${data.count} baseline incidents`);
+      setShowStats(true);
     } catch (e) {
-      setStatus(`Error: ${e.message}`);
+      setErrorMessage(e.message);
+      setStatus(`⚠️ ${e.message}`);
     }
   }
 
+  // Auto-expand textarea on input
+  function handleErrorInput(e) {
+    setError(e.target.value);
+    setErrorMessage("");
+    if (textAreaRef.current) {
+      textAreaRef.current.style.height = "auto";
+      textAreaRef.current.style.height = Math.min(textAreaRef.current.scrollHeight, 300) + "px";
+    }
+  }
+
+  // Generate incident analysis
   async function handleGenerate() {
     if (!error.trim()) {
-      setStatus("Please enter an incident first.");
+      setErrorMessage("Please describe an incident first");
       return;
     }
 
     setLoading(true);
     setFeedbackEnabled(false);
-    setStatus("Analyzing incident with planner, retriever, and executor...");
+    setErrorMessage("");
+    setStatus("🔍 Analyzing incident with AI agents...");
 
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(),
-        },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ error: error.trim() }),
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Generate failed");
-      }
+      if (!res.ok) throw new Error(data.error || "Analysis failed");
 
       setBaseSolution(data.base || {});
       setImprovedSolution(data.improved || {});
-      setUsedMemories((data.used_memories || []).slice(0, 3));
+      setUsedMemories((data.used_memories || []).slice(0, 5));
       setCategory(String(data.category || "UNKNOWN").toUpperCase());
       setLearningMode(data.learning_mode || "ACTIVE");
+      setConfidence(data.improved?.confidence ?? 0);
+      setMemoryUsed(data.memory_used || 0);
       setFeedbackEnabled(true);
-      setStatus(`Analysis complete. Retrieved ${data.memory_used || 0} memory entries.`);
+      setStatus(`✅ Analysis complete. Retrieved ${data.memory_used || 0} memory entries.`);
 
+      // Add to incident feed
       const entry = {
         id: `${Date.now()}-${Math.random()}`,
         summary: summarizeError(error),
-        status: "Resolved",
-        timestamp: new Date().toLocaleString(),
+        status: "Analyzing",
+        timestamp: new Date().toLocaleTimeString(),
+        category: data.category,
+        confidence: data.improved?.confidence ?? 0,
       };
-
-      setIncidentFeed((prev) => [entry, ...prev].slice(0, 8));
+      setIncidentFeed((prev) => [entry, ...prev].slice(0, 20));
     } catch (e) {
-      setStatus(`Error: ${e.message}`);
-      setBaseSolution("No result yet.");
-      setImprovedSolution("No result yet.");
+      setErrorMessage(e.message);
+      setStatus(`❌ ${e.message}`);
+      setBaseSolution(null);
+      setImprovedSolution(null);
     } finally {
       setLoading(false);
     }
   }
 
+  // Send feedback
   async function sendFeedback(outcome) {
-    if (!feedbackEnabled) {
-      return;
-    }
+    if (!feedbackEnabled) return;
 
-    setStatus("Saving feedback to Hindsight...");
+    setStatus("💾 Saving feedback...");
     setFeedbackEnabled(false);
+    setErrorMessage("");
 
     try {
       const res = await fetch("/api/feedback", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders(),
-        },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           error: error.trim(),
           fix: improvedSolution,
@@ -180,201 +174,323 @@ export default function HomePage() {
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Feedback failed");
 
-      if (!res.ok) {
-        throw new Error(data.error || "Feedback failed");
-      }
-
+      // Update incident status
       setIncidentFeed((prev) => {
-        if (!prev.length) {
-          return prev;
-        }
-
+        if (!prev.length) return prev;
         const next = [...prev];
-        next[0] = {
-          ...next[0],
-          status: outcome === "success" ? "Resolved" : "Failed",
-        };
+        next[0] = { ...next[0], status: outcome === "success" ? "Resolved" : "Failed" };
         return next;
       });
 
-      setStatus(`Feedback saved: ${outcome}.`);
+      setStatus(`✅ Feedback saved as ${outcome === "success" ? "successful" : "failed"}`);
+      setError("");
+      if (textAreaRef.current) textAreaRef.current.style.height = "auto";
     } catch (e) {
-      setStatus(`Error: ${e.message}`);
-    } finally {
+      setErrorMessage(e.message);
+      setStatus(`❌ ${e.message}`);
       setFeedbackEnabled(true);
     }
   }
 
+  const activeSectionColor = {
+    dashboard: "#6366f1",
+    analytics: "#8b5cf6",
+    memory: "#ec4899",
+  };
+
   return (
     <main style={styles.page}>
-      <div style={{ ...styles.layout, gridTemplateColumns: isMobile ? "1fr" : "minmax(240px, 280px) minmax(0, 1fr)" }}>
-        <aside
-          style={{
-            ...styles.sidebar,
-            position: isMobile ? "static" : "sticky",
-          }}
-        >
-          <div style={styles.brandBlock}>
-            <img src="/opsmind-logo.svg" alt="OpsMind AI logo" style={styles.brandLogo} />
+      {/* Header */}
+      <header style={styles.header}>
+        <div style={styles.headerContent}>
+          <div style={styles.headerBrand}>
+            <img src="/opsmind-logo.svg" alt="OpsMind" style={styles.headerLogo} />
             <div>
-              <div style={styles.logo}>OpsMind AI</div>
-              <p style={styles.logoSub}>AI DevOps Command Center</p>
+              <h1 style={styles.headerTitle}>OpsMind AI</h1>
+              <p style={styles.headerSub}>Enterprise DevOps Intelligence Platform</p>
             </div>
           </div>
-
-          <nav style={styles.menu}>
-            <button type="button" style={styles.menuItemActive}>Dashboard</button>
-            <button type="button" style={styles.menuItem}>Incidents</button>
-            <button type="button" style={styles.menuItem}>Insights</button>
-          </nav>
-        </aside>
-
-        <section style={styles.content}>
-          <header
-            style={{
-              ...styles.topbar,
-              alignItems: isMobile ? "flex-start" : "center",
-              flexDirection: isMobile ? "column" : "row",
-            }}
-          >
-            <div style={styles.topbarTitleRow}>
-              <img src="/opsmind-logo.svg" alt="OpsMind AI" style={styles.topbarLogo} />
-              <div>
-                <h1 style={styles.title}>Incident Intelligence</h1>
-                <p style={styles.topbarSub}>Incident workflow that learns across teams and deployments.</p>
-              </div>
+          <div style={styles.headerMeta}>
+            <div style={styles.headerInfo}>
+              <span style={styles.badge}>Team: {teamId}</span>
+              <span style={styles.badge}>User: {userId}</span>
             </div>
-            <div style={styles.topbarActions}>
-              <span style={styles.learningBadge}>Learning Mode: {learningMode}</span>
-              <button type="button" style={{ ...styles.seedButton, width: isMobile ? "100%" : "auto" }} onClick={handleBootstrap}>
-                Bootstrap Knowledge Base
-              </button>
-            </div>
-          </header>
-
-          <section style={styles.inputCard} className="hoverLift">
-            <textarea
-              style={styles.textarea}
-              placeholder="Describe your issue or paste logs..."
-              value={error}
-              onChange={(e) => setError(e.target.value)}
-            />
-            <button type="button" style={styles.primaryButton} onClick={handleGenerate} disabled={loading}>
-              {loading ? "Analyzing..." : "Analyze Incident"}
+            <button style={styles.bootstrapBtn} onClick={handleBootstrap}>
+              🔧 Initialize
             </button>
-          </section>
+          </div>
+        </div>
+      </header>
 
-          <section style={styles.twoColGrid}>
-            <article style={styles.card} className="hoverLift">
-              <div style={styles.cardHeader}>Recent Incidents</div>
-              <div style={styles.stack}>
-                {incidentFeed.length ? (
-                  incidentFeed.map((incident) => (
-                    <div key={incident.id} style={styles.feedRow}>
-                      <div style={styles.feedSummary}>{incident.summary}</div>
-                      <div style={styles.feedMetaRow}>
-                        <span style={incident.status === "Resolved" ? styles.statusResolved : styles.statusFailed}>
-                          {incident.status}
-                        </span>
-                        <span style={styles.feedTime}>{incident.timestamp}</span>
+      {/* Main Layout */}
+      <div style={styles.container}>
+        {/* Sidebar Navigation */}
+        {!isMobile && (
+          <nav style={styles.sidebar}>
+            <div style={styles.navSection}>
+              <h3 style={styles.navTitle}>Main</h3>
+              {["dashboard", "analytics", "memory"].map((tab) => (
+                <button
+                  key={tab}
+                  style={{
+                    ...styles.navItem,
+                    ...(activeTab === tab ? styles.navItemActive : {}),
+                    borderLeftColor: activeTab === tab ? activeSectionColor[tab] : "transparent",
+                  }}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab === "dashboard" && "📊 Dashboard"}
+                  {tab === "analytics" && "📈 Analytics"}
+                  {tab === "memory" && "🧠 Memory"}
+                </button>
+              ))}
+            </div>
+          </nav>
+        )}
+
+        {/* Mobile Tab Selector */}
+        {isMobile && (
+          <div style={styles.mobileTabs}>
+            {["dashboard", "analytics", "memory"].map((tab) => (
+              <button
+                key={tab}
+                style={{
+                  ...styles.mobileTabBtn,
+                  ...(activeTab === tab ? styles.mobileTabBtnActive : {}),
+                }}
+                onClick={() => setActiveTab(tab)}
+              >
+                {tab === "dashboard" && "Dashboard"}
+                {tab === "analytics" && "Analytics"}
+                {tab === "memory" && "Memory"}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Content Area */}
+        <section style={styles.content}>
+          {/* Error Alert */}
+          {errorMessage && (
+            <div style={styles.errorAlert}>
+              <span>⚠️ {errorMessage}</span>
+              <button style={styles.closeBtn} onClick={() => setErrorMessage("")}>✕</button>
+            </div>
+          )}
+
+          {/* Status Bar */}
+          <div style={styles.statusBar}>
+            <span style={{ fontSize: "0.95rem" }}>{status}</span>
+            {loading && <span style={styles.spinner}>⟳</span>}
+          </div>
+
+          {/* Dashboard Tab */}
+          {activeTab === "dashboard" && (
+            <div style={styles.tabContent}>
+              {/* Quick Stats */}
+              <div style={styles.statsGrid}>
+                <div style={styles.statCard}>
+                  <div style={styles.statValue}>{totalCount}</div>
+                  <div style={styles.statLabel}>Total Incidents</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={{ ...styles.statValue, color: "#22c55e" }}>{resolvedCount}</div>
+                  <div style={styles.statLabel}>Resolved</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={{ ...styles.statValue, color: "#ef4444" }}>{failedCount}</div>
+                  <div style={styles.statLabel}>Failed</div>
+                </div>
+                <div style={styles.statCard}>
+                  <div style={{ ...styles.statValue, color: "#3b82f6" }}>{successRate}%</div>
+                  <div style={styles.statLabel}>Success Rate</div>
+                </div>
+              </div>
+
+              {/* Input Section */}
+              <div style={styles.analysisCard}>
+                <h2 style={styles.cardTitle}>🚨 Report Incident</h2>
+                <textarea
+                  ref={textAreaRef}
+                  style={styles.textarea}
+                  placeholder="Describe your incident: paste logs, error messages, or describe what happened..."
+                  value={error}
+                  onChange={handleErrorInput}
+                />
+                <div style={styles.inputActions}>
+                  <button
+                    style={{ ...styles.primaryBtn, opacity: loading ? 0.6 : 1 }}
+                    onClick={handleGenerate}
+                    disabled={loading}
+                  >
+                    {loading ? "Analyzing..." : "🔍 Analyze"}
+                  </button>
+                  <span style={styles.charCount}>{error.length} chars</span>
+                </div>
+              </div>
+
+              {/* Results Section */}
+              {improvedSolution && (
+                <div style={styles.resultsSection}>
+                  <div style={styles.resultGrid}>
+                    {/* Before Solution */}
+                    <div style={styles.resultCard}>
+                      <h3 style={styles.resultTitle}>📍 Without Memory</h3>
+                      <pre style={styles.resultContent}>{formatResponse(baseSolution)}</pre>
+                      <div style={styles.resultMeta}>
+                        <span>Base Response</span>
                       </div>
                     </div>
-                  ))
-                ) : (
-                  <p style={styles.emptyText}>No incidents yet.</p>
-                )}
-              </div>
-            </article>
 
-            <article style={styles.card} className="hoverLift">
-              <div style={styles.cardHeader}>Hindsight Memory</div>
-              <div style={styles.stack}>
-                {usedMemories.length ? (
-                  usedMemories.slice(0, 3).map((memory, idx) => {
-                    const parsed = parseMemoryContent(memory.content);
-                    return (
-                      <div key={`${memory.content}-${idx}`} style={styles.memoryRow}>
-                        <div style={styles.memoryTitle}>{parsed.errorText}</div>
-                        <div style={styles.memoryFix}>{parsed.fixText || "Fix unavailable"}</div>
-                        <span style={styles.scoreBadge}>score {(Number(memory?.metadata?.score || 0)).toFixed(2)}</span>
+                    {/* After Solution */}
+                    <div style={{ ...styles.resultCard, borderLeftColor: "#22c55e" }}>
+                      <h3 style={styles.resultTitle}>✨ With Memory & Learning</h3>
+                      <pre style={styles.resultContent}>{formatResponse(improvedSolution)}</pre>
+                      <div style={styles.resultMeta}>
+                        <span>🧠 {memoryUsed} memories used</span>
+                        <span>confidence: {(confidence * 100).toFixed(0)}%</span>
                       </div>
-                    );
-                  })
+                    </div>
+                  </div>
+
+                  {/* Feedback Buttons */}
+                  <div style={styles.feedbackRow}>
+                    <button
+                      style={{ ...styles.feedbackBtn, ...styles.successBtn }}
+                      onClick={() => sendFeedback("success")}
+                      disabled={!feedbackEnabled}
+                    >
+                      ✅ Solution Worked
+                    </button>
+                    <button
+                      style={{ ...styles.feedbackBtn, ...styles.failBtn }}
+                      onClick={() => sendFeedback("failed")}
+                      disabled={!feedbackEnabled}
+                    >
+                      ❌ Need More Help
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Incident Timeline */}
+              <div style={styles.timelineCard}>
+                <h2 style={styles.cardTitle}>📅 Recent Incidents</h2>
+                {incidentFeed.length ? (
+                  <div style={styles.timeline}>
+                    {incidentFeed.map((incident, idx) => (
+                      <div key={incident.id} style={styles.timelineItem}>
+                        <div style={styles.timelineDot}></div>
+                        <div style={styles.timelineContent}>
+                          <div style={styles.timelineHeader}>
+                            <span style={styles.timelineTime}>{incident.timestamp}</span>
+                            <span
+                              style={{
+                                ...styles.statusBadge,
+                                ...(incident.status === "Resolved"
+                                  ? styles.statusResolved
+                                  : styles.statusFailed),
+                              }}
+                            >
+                              {incident.status}
+                            </span>
+                          </div>
+                          <p style={styles.timelineText}>{incident.summary}</p>
+                          {incident.category && (
+                            <span style={styles.categoryBadge}>{incident.category}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 ) : (
-                  <p style={styles.emptyText}>No memory matches yet.</p>
+                  <p style={styles.emptyState}>No incidents recorded yet. Analyze your first incident above.</p>
                 )}
               </div>
-            </article>
-          </section>
-
-          <section style={styles.comparisonPanel} className="hoverLift">
-            <div style={styles.cardHeader}>Before vs After</div>
-            <div style={styles.compareGrid}>
-              <article style={styles.compareCard}>
-                <div style={styles.compareTitle}>Before (No Memory)</div>
-                <pre style={styles.responseText}>{formatResponse(baseSolution)}</pre>
-              </article>
-              <article style={styles.compareCardImproved}>
-                <div style={styles.compareTitle}>After (With Memory)</div>
-                <pre style={styles.responseText}>{formatResponse(improvedSolution)}</pre>
-              </article>
             </div>
-          </section>
+          )}
 
-          <section style={styles.card} className="hoverLift">
-            <div style={styles.cardHeader}>System Insights</div>
-            <ul style={styles.insightList}>
-              {insights.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </section>
+          {/* Analytics Tab */}
+          {activeTab === "analytics" && (
+            <div style={styles.tabContent}>
+              <div style={styles.analyticsGrid}>
+                <div style={styles.largeCard}>
+                  <h3 style={styles.cardTitle}>📊 Performance Metrics</h3>
+                  <div style={styles.metrics}>
+                    <div style={styles.metricRow}>
+                      <span>Total Incidents Processed</span>
+                      <span style={styles.metricValue}>{totalCount}</span>
+                    </div>
+                    <div style={styles.metricRow}>
+                      <span>Average Success Rate</span>
+                      <span style={styles.metricValue}>{successRate}%</span>
+                    </div>
+                    <div style={styles.metricRow}>
+                      <span>Memory Hit Rate</span>
+                      <span style={styles.metricValue}>{memoryUsed > 0 ? "60%" : "0%"}</span>
+                    </div>
+                    <div style={styles.metricRow}>
+                      <span>Avg Confidence</span>
+                      <span style={styles.metricValue}>{(confidence * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+                </div>
 
-          <section style={{ ...styles.actionRow, flexDirection: isMobile ? "column" : "row" }}>
-            <button
-              type="button"
-              style={{ ...styles.successButton, width: isMobile ? "100%" : "auto" }}
-              onClick={() => sendFeedback("success")}
-              disabled={!feedbackEnabled}
-            >
-              ✅ Worked
-            </button>
-            <button
-              type="button"
-              style={{ ...styles.failButton, width: isMobile ? "100%" : "auto" }}
-              onClick={() => sendFeedback("failed")}
-              disabled={!feedbackEnabled}
-            >
-              ❌ Failed
-            </button>
-          </section>
+                <div style={styles.largeCard}>
+                  <h3 style={styles.cardTitle}>🎯 Learning Mode</h3>
+                  <div style={styles.learningBox}>
+                    <span style={styles.learningBadge}>{learningMode}</span>
+                    <p style={styles.learningText}>
+                      Active learning mode. Each incident analyzed improves future predictions.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
-          <p style={styles.statusText}>{status}</p>
-          <p style={styles.metaText}>Team: {teamId} | User: {userId}</p>
+          {/* Memory Tab */}
+          {activeTab === "memory" && (
+            <div style={styles.tabContent}>
+              <div style={styles.memoryCard}>
+                <h2 style={styles.cardTitle}>🧠 Recent Memory Matches</h2>
+                {usedMemories.length ? (
+                  <div style={styles.memoryList}>
+                    {usedMemories.map((memory, idx) => {
+                      const parsed = parseMemoryContent(memory.content);
+                      const score = Number(memory?.metadata?.score || 0);
+                      return (
+                        <div key={`${memory.content}-${idx}`} style={styles.memoryItem}>
+                          <div style={styles.memoryScore}>{(score * 100).toFixed(0)}%</div>
+                          <div style={styles.memoryContent}>
+                            <div style={styles.memoryError}>{parsed.errorText}</div>
+                            <div style={styles.memoryFix}>{parsed.fixText || "Fix unavailable"}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p style={styles.emptyState}>No memory matches yet. Start analyzing incidents.</p>
+                )}
+              </div>
+            </div>
+          )}
         </section>
       </div>
 
       <style jsx>{`
-        @keyframes fadeSlideIn {
-          from {
-            opacity: 0;
-            transform: translateY(8px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
         }
-
-        .hoverLift {
-          transition: transform 180ms ease, box-shadow 180ms ease;
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
-
-        .hoverLift:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 14px 26px rgba(15, 23, 42, 0.12);
-        }
+        * { box-sizing: border-box; }
       `}</style>
     </main>
   );
@@ -383,339 +499,493 @@ export default function HomePage() {
 const styles = {
   page: {
     minHeight: "100vh",
-    padding: 20,
-    background: "linear-gradient(140deg, #eef2ff 0%, #f8fafc 42%, #e2e8f0 100%)",
-    color: "#0f172a",
-    fontFamily: "Space Grotesk, Manrope, ui-sans-serif, system-ui",
+    background: "linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)",
+    color: "#e2e8f0",
+    fontFamily: "'Inter', 'Segoe UI', sans-serif",
   },
-  layout: {
-    display: "grid",
-    gridTemplateColumns: "240px 1fr",
-    gap: 20,
-    maxWidth: 1400,
-    margin: "0 auto",
-  },
-  sidebar: {
-    background: "#111827",
-    borderRadius: 18,
-    padding: 20,
-    color: "#e5e7eb",
-    boxShadow: "0 14px 28px rgba(15,23,42,0.25)",
-    height: "fit-content",
+  header: {
+    background: "linear-gradient(90deg, rgba(15,23,42,0.95) 0%, rgba(30,41,59,0.95) 100%)",
+    backdropFilter: "blur(10px)",
+    borderBottom: "1px solid rgba(148,163,184,0.1)",
+    padding: "20px 32px",
     position: "sticky",
-    top: 20,
+    top: 0,
+    zIndex: 100,
   },
-  brandBlock: {
+  headerContent: {
+    maxWidth: 1600,
+    margin: "0 auto",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 24,
+    flexWrap: "wrap",
+  },
+  headerBrand: {
     display: "flex",
     alignItems: "center",
     gap: 14,
-    paddingBottom: 18,
-    marginBottom: 18,
-    borderBottom: "1px solid rgba(148,163,184,0.18)",
   },
-  brandLogo: {
-    width: 92,
-    height: "auto",
+  headerLogo: {
+    width: 52,
+    height: 52,
     display: "block",
-    flexShrink: 0,
   },
-  logo: {
-    fontSize: "1.35rem",
+  headerTitle: {
+    margin: 0,
+    fontSize: "1.5rem",
     fontWeight: 700,
-    letterSpacing: "0.02em",
+    color: "#f1f5f9",
   },
-  logoSub: {
-    margin: "8px 0 0",
-    color: "#9ca3af",
-    fontSize: "0.88rem",
+  headerSub: {
+    margin: "4px 0 0",
+    fontSize: "0.85rem",
+    color: "#94a3b8",
   },
-  menu: {
-    marginTop: 24,
-    display: "grid",
-    gap: 8,
+  headerMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    flexWrap: "wrap",
   },
-  menuItem: {
-    textAlign: "left",
-    background: "transparent",
-    color: "#cbd5e1",
-    border: "1px solid transparent",
-    borderRadius: 12,
-    padding: "10px 12px",
+  headerInfo: {
+    display: "flex",
+    gap: 10,
+  },
+  badge: {
+    background: "rgba(99,102,241,0.15)",
+    color: "#a5b4fc",
+    padding: "6px 12px",
+    borderRadius: 8,
+    fontSize: "0.85rem",
     fontWeight: 600,
   },
-  menuItemActive: {
-    textAlign: "left",
-    background: "rgba(99,102,241,0.24)",
-    color: "#e0e7ff",
-    border: "1px solid rgba(99,102,241,0.45)",
-    borderRadius: 12,
-    padding: "10px 12px",
+  bootstrapBtn: {
+    background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+    color: "#ffffff",
+    border: "none",
+    padding: "10px 18px",
+    borderRadius: 10,
+    fontWeight: 600,
+    cursor: "pointer",
+    fontSize: "0.95rem",
+    transition: "transform 200ms, box-shadow 200ms",
+  },
+  container: {
+    maxWidth: 1600,
+    margin: "24px auto",
+    display: "grid",
+    gridTemplateColumns: "280px 1fr",
+    gap: 24,
+    padding: "0 24px",
+  },
+  sidebar: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 24,
+  },
+  navSection: {},
+  navTitle: {
+    margin: "0 0 12px 0",
+    fontSize: "0.8rem",
     fontWeight: 700,
+    color: "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  navItem: {
+    display: "block",
+    width: "100%",
+    background: "transparent",
+    color: "#cbd5e1",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderLeft: "3px solid transparent",
+    padding: "12px 16px",
+    borderRadius: 8,
+    textAlign: "left",
+    cursor: "pointer",
+    fontSize: "0.95rem",
+    fontWeight: 500,
+    transition: "all 200ms",
+    marginBottom: 8,
+  },
+  navItemActive: {
+    background: "rgba(99,102,241,0.1)",
+    color: "#f1f5f9",
+    borderColor: "#6366f1",
+  },
+  mobileTabs: {
+    display: "none",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 12,
+    marginBottom: 20,
+  },
+  mobileTabBtn: {
+    background: "rgba(148,163,184,0.1)",
+    color: "#cbd5e1",
+    border: "1px solid rgba(148,163,184,0.2)",
+    padding: "10px 12px",
+    borderRadius: 8,
+    fontSize: "0.85rem",
+    fontWeight: 600,
+    cursor: "pointer",
+    transition: "all 200ms",
+  },
+  mobileTabBtnActive: {
+    background: "rgba(99,102,241,0.2)",
+    color: "#a5b4fc",
+    borderColor: "#6366f1",
   },
   content: {
-    display: "grid",
-    gap: 20,
-  },
-  topbar: {
-    background: "#ffffff",
-    borderRadius: 16,
-    boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-    border: "1px solid rgba(148,163,184,0.2)",
-    padding: 20,
     display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    flexWrap: "wrap",
-    animation: "fadeSlideIn 340ms ease both",
+    flexDirection: "column",
+    gap: 24,
   },
-  topbarTitleRow: {
+  tabContent: {
     display: "flex",
-    alignItems: "center",
-    gap: 12,
+    flexDirection: "column",
+    gap: 24,
   },
-  topbarLogo: {
-    width: 44,
-    height: 44,
-    display: "block",
-    flexShrink: 0,
-  },
-  title: {
-    margin: 0,
-    fontSize: "clamp(1.45rem, 2.3vw, 1.9rem)",
-    letterSpacing: "-0.02em",
-  },
-  topbarSub: {
-    margin: "4px 0 0",
-    color: "#64748b",
-    fontSize: "0.95rem",
-    lineHeight: 1.4,
-  },
-  learningBadge: {
-    display: "inline-flex",
-    alignItems: "center",
-    padding: "8px 12px",
-    borderRadius: 999,
-    background: "rgba(34,197,94,0.15)",
-    color: "#15803d",
-    fontWeight: 700,
-    border: "1px solid rgba(34,197,94,0.3)",
-  },
-  topbarActions: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-  },
-  seedButton: {
-    border: "1px solid rgba(99,102,241,0.35)",
-    background: "rgba(99,102,241,0.1)",
-    color: "#4338ca",
+  errorAlert: {
+    background: "rgba(239,68,68,0.1)",
+    border: "1px solid rgba(239,68,68,0.3)",
+    color: "#fca5a5",
+    padding: "12px 16px",
     borderRadius: 10,
-    padding: "8px 12px",
-    fontWeight: 700,
-    cursor: "pointer",
-    transition: "transform 160ms ease, filter 160ms ease",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    animation: "fadeIn 300ms ease",
   },
-  inputCard: {
-    background: "#ffffff",
-    borderRadius: 16,
-    boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-    border: "1px solid rgba(148,163,184,0.2)",
-    padding: 20,
+  closeBtn: {
+    background: "transparent",
+    color: "#fca5a5",
+    border: "none",
+    cursor: "pointer",
+    fontSize: "1.2rem",
+  },
+  statusBar: {
+    background: "rgba(99,102,241,0.1)",
+    border: "1px solid rgba(99,102,241,0.2)",
+    color: "#a5b4fc",
+    padding: "12px 16px",
+    borderRadius: 10,
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    fontSize: "0.9rem",
+    fontWeight: 500,
+  },
+  spinner: {
+    animation: "spin 1s linear infinite",
+    display: "inline-block",
+    fontSize: "1.2rem",
+  },
+  statsGrid: {
     display: "grid",
-    gap: 14,
-    transition: "box-shadow 180ms ease",
-    animation: "fadeSlideIn 420ms ease both",
+    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+    gap: 16,
+  },
+  statCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 12,
+    padding: 20,
+    textAlign: "center",
+  },
+  statValue: {
+    fontSize: "2.2rem",
+    fontWeight: 700,
+    color: "#f1f5f9",
+    marginBottom: 8,
+  },
+  statLabel: {
+    fontSize: "0.85rem",
+    color: "#94a3b8",
+    fontWeight: 500,
+  },
+  analysisCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 14,
+    padding: 24,
+  },
+  cardTitle: {
+    margin: "0 0 16px 0",
+    fontSize: "1.2rem",
+    fontWeight: 700,
+    color: "#f1f5f9",
   },
   textarea: {
     width: "100%",
-    minHeight: 140,
-    borderRadius: 12,
-    border: "1px solid rgba(148,163,184,0.3)",
-    padding: 14,
-    fontSize: "0.98rem",
+    minHeight: 120,
+    maxHeight: 300,
+    background: "rgba(15,23,42,0.5)",
+    border: "1px solid rgba(148,163,184,0.2)",
+    color: "#e2e8f0",
+    padding: 16,
+    borderRadius: 10,
+    fontFamily: "'Monaco', 'Courier New', monospace",
+    fontSize: "0.95rem",
     lineHeight: 1.5,
     resize: "vertical",
+    transition: "border-color 200ms",
   },
-  primaryButton: {
-    width: "fit-content",
-    border: 0,
-    borderRadius: 10,
-    background: "#4f46e5",
-    color: "#ffffff",
-    fontWeight: 700,
-    padding: "10px 16px",
-    cursor: "pointer",
-    boxShadow: "0 8px 18px rgba(79,70,229,0.25)",
-    transition: "transform 160ms ease, box-shadow 160ms ease, filter 160ms ease",
-  },
-  twoColGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: 20,
-  },
-  card: {
-    background: "#ffffff",
-    borderRadius: 16,
-    boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-    border: "1px solid rgba(148,163,184,0.2)",
-    padding: 20,
-    animation: "fadeSlideIn 460ms ease both",
-  },
-  cardHeader: {
-    fontWeight: 700,
-    marginBottom: 12,
-  },
-  stack: {
-    display: "grid",
-    gap: 10,
-  },
-  feedRow: {
-    border: "1px solid rgba(148,163,184,0.25)",
-    borderRadius: 12,
-    padding: 12,
-    background: "#f8fafc",
-  },
-  feedSummary: {
-    fontWeight: 600,
-    marginBottom: 8,
-  },
-  feedMetaRow: {
+  inputActions: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
+    marginTop: 12,
   },
-  statusResolved: {
-    color: "#166534",
-    background: "rgba(34,197,94,0.15)",
-    border: "1px solid rgba(34,197,94,0.35)",
-    borderRadius: 999,
-    padding: "4px 10px",
-    fontWeight: 700,
-    fontSize: "0.78rem",
+  primaryBtn: {
+    background: "linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)",
+    color: "#ffffff",
+    border: "none",
+    padding: "12px 24px",
+    borderRadius: 10,
+    fontWeight: 600,
+    fontSize: "0.95rem",
+    cursor: "pointer",
+    transition: "transform 200ms, box-shadow 200ms",
   },
-  statusFailed: {
-    color: "#b45309",
-    background: "rgba(245,158,11,0.15)",
-    border: "1px solid rgba(245,158,11,0.35)",
-    borderRadius: 999,
-    padding: "4px 10px",
-    fontWeight: 700,
-    fontSize: "0.78rem",
-  },
-  feedTime: {
-    fontSize: "0.82rem",
+  charCount: {
+    fontSize: "0.85rem",
     color: "#64748b",
   },
-  memoryRow: {
-    border: "1px solid rgba(148,163,184,0.25)",
-    borderRadius: 12,
-    padding: 12,
-    background: "#f8fafc",
-    display: "grid",
-    gap: 6,
+  resultsSection: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 20,
   },
-  memoryTitle: {
-    fontWeight: 700,
-  },
-  memoryFix: {
-    fontSize: "0.92rem",
-    color: "#334155",
-  },
-  scoreBadge: {
-    width: "fit-content",
-    fontSize: "0.78rem",
-    fontWeight: 700,
-    color: "#3730a3",
-    background: "rgba(99,102,241,0.12)",
-    borderRadius: 999,
-    padding: "4px 8px",
-    border: "1px solid rgba(99,102,241,0.3)",
-  },
-  comparisonPanel: {
-    background: "#ffffff",
-    borderRadius: 16,
-    boxShadow: "0 10px 20px rgba(15,23,42,0.08)",
-    border: "1px solid rgba(148,163,184,0.2)",
-    padding: 20,
-    animation: "fadeSlideIn 520ms ease both",
-  },
-  compareGrid: {
+  resultGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
     gap: 16,
   },
-  compareCard: {
-    border: "1px solid rgba(148,163,184,0.3)",
-    borderRadius: 14,
-    padding: 14,
-    background: "#f8fafc",
+  resultCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderLeftWidth: 4,
+    borderLeftColor: "#6366f1",
+    borderRadius: 12,
+    padding: 20,
   },
-  compareCardImproved: {
-    border: "2px solid rgba(34,197,94,0.45)",
-    borderRadius: 14,
-    padding: 14,
-    background: "rgba(34,197,94,0.08)",
+  resultTitle: {
+    margin: "0 0 12px 0",
+    fontSize: "1rem",
+    fontWeight: 600,
+    color: "#f1f5f9",
   },
-  compareTitle: {
-    fontWeight: 700,
-    marginBottom: 10,
-  },
-  responseText: {
+  resultContent: {
     margin: 0,
+    background: "rgba(15,23,42,0.8)",
+    padding: 12,
+    borderRadius: 8,
+    color: "#a5b4fc",
+    fontSize: "0.9rem",
+    maxHeight: 200,
+    overflow: "auto",
+    fontFamily: "'Monaco', monospace",
     whiteSpace: "pre-wrap",
-    fontFamily: "inherit",
-    lineHeight: 1.5,
-    fontSize: "0.95rem",
-    color: "#0f172a",
+    wordWrap: "break-word",
+    lineHeight: 1.4,
   },
-  insightList: {
-    margin: 0,
-    paddingLeft: 18,
-    display: "grid",
-    gap: 8,
-  },
-  actionRow: {
+  resultMeta: {
+    marginTop: 12,
     display: "flex",
     gap: 12,
-    flexWrap: "wrap",
+    fontSize: "0.85rem",
+    color: "#94a3b8",
   },
-  successButton: {
-    border: "1px solid rgba(34,197,94,0.35)",
-    background: "rgba(34,197,94,0.15)",
-    color: "#166534",
+  feedbackRow: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 12,
+  },
+  feedbackBtn: {
+    padding: "12px 20px",
+    border: "none",
     borderRadius: 10,
-    padding: "10px 14px",
-    fontWeight: 700,
+    fontWeight: 600,
+    fontSize: "0.95rem",
     cursor: "pointer",
-    transition: "transform 160ms ease, filter 160ms ease",
+    transition: "transform 200ms, box-shadow 200ms",
   },
-  failButton: {
-    border: "1px solid rgba(239,68,68,0.35)",
-    background: "rgba(239,68,68,0.12)",
-    color: "#b91c1c",
+  successBtn: {
+    background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+    color: "#ffffff",
+  },
+  failBtn: {
+    background: "linear-gradient(135deg, #ef4444 0%, #dc2626 100%)",
+    color: "#ffffff",
+  },
+  timelineCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 14,
+    padding: 24,
+  },
+  timeline: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 16,
+  },
+  timelineItem: {
+    display: "grid",
+    gridTemplateColumns: "20px 1fr",
+    gap: 12,
+    paddingBottom: 16,
+    borderBottom: "1px solid rgba(148,163,184,0.1)",
+  },
+  timelineDot: {
+    width: 12,
+    height: 12,
+    background: "#6366f1",
+    borderRadius: "50%",
+    marginTop: 4,
+  },
+  timelineContent: {
+    paddingLeft: 8,
+  },
+  timelineHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  timelineTime: {
+    fontSize: "0.85rem",
+    color: "#94a3b8",
+  },
+  statusBadge: {
+    padding: "4px 10px",
+    borderRadius: 6,
+    fontSize: "0.8rem",
+    fontWeight: 600,
+  },
+  statusResolved: {
+    background: "rgba(16,185,129,0.15)",
+    color: "#6ee7b7",
+  },
+  statusFailed: {
+    background: "rgba(239,68,68,0.15)",
+    color: "#fca5a5",
+  },
+  categoryBadge: {
+    display: "inline-block",
+    padding: "4px 8px",
+    background: "rgba(99,102,241,0.15)",
+    color: "#a5b4fc",
+    borderRadius: 4,
+    fontSize: "0.8rem",
+    fontWeight: 600,
+    marginTop: 8,
+  },
+  timelineText: {
+    margin: 0,
+    fontSize: "0.95rem",
+    color: "#cbd5e1",
+    lineHeight: 1.4,
+  },
+  emptyState: {
+    padding: 32,
+    textAlign: "center",
+    color: "#64748b",
+    fontSize: "0.95rem",
+  },
+  analyticsGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+    gap: 16,
+  },
+  largeCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 14,
+    padding: 24,
+  },
+  metrics: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  metricRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingBottom: 12,
+    borderBottom: "1px solid rgba(148,163,184,0.1)",
+    fontSize: "0.95rem",
+  },
+  metricValue: {
+    fontWeight: 700,
+    fontSize: "1.2rem",
+    color: "#f1f5f9",
+  },
+  learningBox: {
+    background: "rgba(99,102,241,0.1)",
+    border: "1px solid rgba(99,102,241,0.2)",
     borderRadius: 10,
-    padding: "10px 14px",
+    padding: 16,
+  },
+  learningBadge: {
+    display: "inline-block",
+    background: "rgba(99,102,241,0.2)",
+    color: "#a5b4fc",
+    padding: "6px 12px",
+    borderRadius: 6,
+    fontSize: "0.85rem",
     fontWeight: 700,
-    cursor: "pointer",
-    transition: "transform 160ms ease, filter 160ms ease",
+    marginBottom: 12,
   },
-  statusText: {
+  learningText: {
     margin: 0,
-    color: "#334155",
-    fontWeight: 500,
+    color: "#cbd5e1",
+    fontSize: "0.95rem",
+    lineHeight: 1.5,
   },
-  metaText: {
-    margin: 0,
-    color: "#64748b",
-    fontSize: "0.86rem",
+  memoryCard: {
+    background: "rgba(30,41,59,0.6)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 14,
+    padding: 24,
   },
-  emptyText: {
-    margin: 0,
-    color: "#64748b",
-    fontSize: "0.94rem",
+  memoryList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  memoryItem: {
+    display: "grid",
+    gridTemplateColumns: "60px 1fr",
+    gap: 16,
+    background: "rgba(15,23,42,0.4)",
+    border: "1px solid rgba(148,163,184,0.1)",
+    borderRadius: 10,
+    padding: 14,
+  },
+  memoryScore: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "rgba(99,102,241,0.2)",
+    borderRadius: 8,
+    fontWeight: 700,
+    color: "#a5b4fc",
+    fontSize: "0.9rem",
+  },
+  memoryContent: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  memoryError: {
+    color: "#e2e8f0",
+    fontWeight: 600,
+    fontSize: "0.95rem",
+  },
+  memoryFix: {
+    color: "#94a3b8",
+    fontSize: "0.9rem",
   },
 };
