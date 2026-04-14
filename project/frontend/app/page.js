@@ -76,7 +76,14 @@ export default function HomePage() {
       }
 
       const key = "opsmind-sw-reset-v2";
-      if (window.localStorage.getItem(key) === "done") {
+      let alreadyDone = false;
+      try {
+        alreadyDone = window.localStorage.getItem(key) === "done";
+      } catch {
+        alreadyDone = false;
+      }
+
+      if (alreadyDone) {
         return;
       }
 
@@ -91,7 +98,11 @@ export default function HomePage() {
       } catch {
         // Ignore cleanup errors; app should still render with network assets.
       } finally {
-        window.localStorage.setItem(key, "done");
+        try {
+          window.localStorage.setItem(key, "done");
+        } catch {
+          // localStorage can be unavailable in privacy-restricted contexts.
+        }
       }
     }
 
