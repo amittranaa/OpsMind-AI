@@ -11,6 +11,39 @@ function shortenForPrompt(text, maxChars = 1400) {
   return `${value.slice(0, maxChars)}...`;
 }
 
+function extractSignals(text) {
+  const lower = String(text || "").toLowerCase();
+  const signals = new Set();
+
+  if (/redis|cache/.test(lower)) signals.add("redis");
+  if (/db|database|postgres|mysql|sql/.test(lower)) signals.add("database");
+  if (/api|node|express|service/.test(lower)) signals.add("api");
+  if (/memory leak|heap out of memory|javascript heap out of memory|heap/.test(lower)) signals.add("memory");
+  if (/network|service discovery|load balancer|timeout between services|intermittent communication/.test(lower)) signals.add("network");
+  if (/deploy|deployment|release|regression/.test(lower)) signals.add("deployment");
+
+  return signals;
+}
+
+function memoryRelevance(issueText, memory) {
+  const issueSignals = extractSignals(issueText);
+  const memoryText = `${memory?.content || ""} ${memory?.metadata?.error_summary || ""} ${memory?.metadata?.fix_summary || ""}`;
+  const memorySignals = extractSignals(memoryText);
+
+  if (issueSignals.size > 0 && memorySignals.size === 0) {
+    return 0;
+  }
+
+  let overlap = 0;
+  issueSignals.forEach((signal) => {
+    if (memorySignals.has(signal)) overlap += 1;
+  });
+
+  const signalScore = issueSignals.size > 0 ? overlap / issueSignals.size : 0;
+  const qualityScore = Number(memory?.metadata?.score || 0);
+  return signalScore * 0.8 + qualityScore * 0.2;
+}
+
 async function planner(error) {
   const prompt = `You are a senior DevOps engineer analyzing infrastructure incidents.
   
@@ -56,6 +89,7 @@ STRICT RULES:
 - NEVER reduce solution quality compared to baseline
 - Prefer scalable + production-grade fixes (scaling, clustering, infra)
 - If memory is narrow, EXPAND it with reasoning
+- If incident is multi-layer, include primary and contributing causes across layers
 
 CURRENT ISSUE:
 ${error}
@@ -141,10 +175,20 @@ export default async function handler(req, res) {
       memories = [];
     }
 
-    // Filter for HIGH QUALITY memories only (score > 0.8), top 2.
-    const filteredMemories = (Array.isArray(memories) ? memories : [])
+    // Filter for HIGH QUALITY memories only (score > 0.8), then keep only relevant top 2.
+    const highQualityMemories = (Array.isArray(memories) ? memories : [])
       .filter((m) => (m?.metadata?.score || 0) > 0.8)
-      .slice(0, 2);
+      .map((m) => ({
+        memory: m,
+        relevance: memoryRelevance(conciseError, m),
+      }))
+      .filter((entry) => entry.relevance >= 0.35)
+      .sort((a, b) => {
+        if (b.relevance !== a.relevance) return b.relevance - a.relevance;
+        return Number(b?.memory?.metadata?.score || 0) - Number(a?.memory?.metadata?.score || 0);
+      });
+
+    const filteredMemories = highQualityMemories.slice(0, 2).map((entry) => entry.memory);
 
     const basePrompt = buildBasePrompt(conciseError);
     const improvedPrompt = buildFinalPrompt(conciseError, plan, filteredMemories);
