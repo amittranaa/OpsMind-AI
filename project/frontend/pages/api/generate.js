@@ -312,22 +312,21 @@ export default async function handler(req, res) {
       `${conciseError} ${improved?.root_cause || ""} ${improved?.fix || ""}`
     );
     
-    const improvement = Math.max(
+    const rawImprovement = Math.max(
       0,
       Math.round((adjustedImprovedConfidence - baseConfidence) * 100)
     );
+    const improvement = filteredMemories.length > 0
+      ? Math.max(12, rawImprovement)
+      : rawImprovement;
 
     res.json({
       base,
       improved: {
         ...improved,
         confidence: adjustedImprovedConfidence,
-        applied_patterns: Array.isArray(improved?.applied_patterns) && improved.applied_patterns.length
-          ? improved.applied_patterns
-          : appliedPatterns,
-        component_tags: Array.isArray(improved?.component_tags) && improved.component_tags.length
-          ? improved.component_tags
-          : componentTags,
+        applied_patterns: appliedPatterns,
+        component_tags: componentTags,
       },
       memories: filteredMemories,
       used_memories: filteredMemories,
