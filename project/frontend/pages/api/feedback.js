@@ -28,7 +28,9 @@ export default async function handler(req, res) {
     const normalizedFix =
       typeof fix === "string"
         ? fix
-        : `${fix?.root_cause || ""} | ${fix?.fix || ""} | ${fix?.steps || ""}`.trim();
+        : String(fix?.fix || "").trim();
+    const rootCause = typeof fix === "object" ? String(fix?.root_cause || "").trim() : "";
+    const steps = typeof fix === "object" ? String(fix?.steps || "").trim() : "";
 
     let evaluated;
     try {
@@ -44,6 +46,8 @@ export default async function handler(req, res) {
     await storeMemory({
       error,
       fix: normalizedFix,
+      root_cause: rootCause,
+      steps,
       outcome,
       score: evaluated.score,
       team_id,

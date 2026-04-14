@@ -47,36 +47,43 @@ function buildFinalPrompt(error, plan, memories) {
     })
     .join("\n");
 
-  return `You are a SENIOR DEVOPS ENGINEER analyzing production incidents.
+  return `You are an intelligent DevOps incident resolution system that improves decisions using memory.
 
-CURRENT INCIDENT:
-Category: ${plan.category}
-Severity: ${plan.severity}
-Layer: ${plan.layer}
+STRICT RULES:
+- Always analyze the CURRENT issue first
+- Use memory ONLY if it is directly relevant
+- Combine reasoning + memory (do NOT blindly repeat memory)
+- Prefer scalable, production-grade fixes
+- Root cause MUST match the system mentioned (Redis, DB, API, etc.)
+- If memory is weak or irrelevant, IGNORE it
 
-ERROR DETAILS:
+CURRENT ISSUE:
 ${error}
 
-PAST SIMILAR INCIDENTS (Memory-backed context):
+CURRENT INCIDENT METADATA:
+- Category: ${plan.category}
+- Severity: ${plan.severity}
+- Layer: ${plan.layer}
+
+RELEVANT MEMORY (top 3 only):
 ${incidents || "No relevant incidents found."}
 
-ANALYSIS FRAMEWORK:
-1. DO NOT just repeat memory solutions - they are guidance only
-2. Identify ROOT CAUSE from patterns, not guesses
-3. Create SCALABLE, PRODUCTION-GRADE FIX (not band-aids)
-4. Suggest proactive monitoring/prevention strategies
-5. Consider team context and deployment constraints
+TASK:
+1. Identify accurate root cause
+2. Use memory to improve (not replace) reasoning
+3. Provide scalable fix
+4. Output concise, production-ready steps
 
-REQUIRED RESPONSE (JSON):
+RETURN JSON ONLY:
 {
-  "root_cause": "Deep analysis of underlying issue (1-2 sentences)",
-  "fix": "Concrete, immediately actionable solution (detailed)",
-  "steps": "Step-by-step implementation guide with commands/configs",
-  "confidence": 0.0-1.0,
-  "monitoring": "How to verify fix + prevent recurrence",
-  "scalability_notes": "How this scales beyond single instance/team"
-}
-`;
+  "root_cause": "",
+  "fix": "",
+  "steps": "",
+  "confidence": 0.0,
+  "improvement_note": "",
+  "monitoring": "",
+  "scalability_notes": ""
+}`;
 }
 
 function buildBasePrompt(error) {
@@ -136,10 +143,10 @@ export default async function handler(req, res) {
       memories = [];
     }
 
-    // Filter for HIGH QUALITY memories only (score > 0.7)
+    // Filter for HIGH QUALITY memories only (score > 0.7), top 3.
     const filteredMemories = (Array.isArray(memories) ? memories : [])
       .filter((m) => (m?.metadata?.score || 0) > 0.7)
-      .slice(0, 5);
+      .slice(0, 3);
 
     const basePrompt = buildBasePrompt(conciseError);
     const improvedPrompt = buildFinalPrompt(conciseError, plan, filteredMemories);
@@ -185,11 +192,12 @@ export default async function handler(req, res) {
         ...improved,
         confidence: adjustedImprovedConfidence,
       },
+      memories: filteredMemories,
       used_memories: filteredMemories,
       memory_used: filteredMemories.length,
       learning_mode: "ACTIVE",
       memory_entries: Array.isArray(memories) ? memories.length : 0,
-      improvement: `${improvement}%`,
+      improvement,
       category: plan.category,
       severity: plan.severity,
       layer: plan.layer,
@@ -214,10 +222,11 @@ export default async function handler(req, res) {
         confidence: 0.2,
       },
       used_memories: [],
+      memories: [],
       memory_used: 0,
       learning_mode: "FALLBACK",
       memory_entries: 0,
-      improvement: "0%",
+      improvement: 0,
       category: "UNKNOWN",
       mode: "fallback",
     });

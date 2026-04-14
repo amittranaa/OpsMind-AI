@@ -92,7 +92,7 @@ function localSearch(query, memories, teamId) {
     .filter((entry) => entry.overlap > 0)
     .sort((a, b) => b.overlap - a.overlap);
 
-  return scored.map((entry) => entry.memory).slice(0, 5);
+  return scored.map((entry) => entry.memory).slice(0, 3);
 }
 
 export async function storeMemory(data) {
@@ -103,20 +103,32 @@ export async function storeMemory(data) {
     ts: Number(data?.ts || Date.now()),
   };
 
-  // Enhanced payload with full context
+  const rootCause = String(data?.root_cause || data?.rootCause || "").trim();
+  const steps = String(data?.steps || "").trim();
+  const outcome = String(scopedPayload.outcome || "unknown").toLowerCase();
+  const score = Number(scopedPayload.score || 0.5);
+
+  // Enhanced payload with full context in a production-friendly format.
   const payload = {
-    // For search indexing
-    content: `${scopedPayload.error} | ${scopedPayload.fix} | ${scopedPayload.outcome}`,
+    content: `Error: ${scopedPayload.error}
+Context: High traffic / production issue
+Root Cause: ${rootCause || "Unknown"}
+Fix: ${scopedPayload.fix}
+Steps: ${steps || "Not provided"}
+Outcome: ${outcome}
+Score: ${score}`,
     
     // Rich metadata for complete context
     metadata: {
       ...scopedPayload,
       // Ensure score is captured
-      score: Number(scopedPayload.score || 0.5),
+      score,
       // Categories for filtering
       error_summary: String(scopedPayload.error || "").slice(0, 100),
       fix_summary: String(scopedPayload.fix || "").slice(0, 100),
-      outcome: String(scopedPayload.outcome || "unknown").toLowerCase(),
+      outcome,
+      root_cause: rootCause,
+      steps,
       // Timestamp for recency weighting
       stored_at: Date.now(),
     },
@@ -202,7 +214,7 @@ export async function searchMemories(query, teamId = normalizeTeamId()) {
           const score = Number(memory?.metadata?.score || 0);
           return score > 0.7;
         })
-        .slice(0, 5);
+        .slice(0, 3);
       
       return filtered.length > 0 ? filtered : localSearch(query, await readLocalMemoryStore(), scopedTeam);
     }

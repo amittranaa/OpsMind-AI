@@ -1,0 +1,11 @@
+{
+  "servers": {
+    "hindsight": {
+      "type": "http",
+      "url": "https://api.hindsight.vectorize.io/mcp/Incident_Intelligence/",
+      "headers": {
+        "Authorization": "Bearer ${env:HINDSIGHT_API_KEY}"
+      }
+    }
+  }
+}

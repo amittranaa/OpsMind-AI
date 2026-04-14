@@ -2,7 +2,8 @@ from groq import Groq
 import json
 import os
 
-client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+client = Groq()
+MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 
 
 def build_prompt(error, memories):
@@ -34,16 +35,26 @@ Return ONLY valid JSON:
 
 def call_llm(prompt):
     try:
-        response = client.chat.completions.create(
-            model="llama3-70b-8192",
+        completion = client.chat.completions.create(
+            model=MODEL,
             messages=[
                 {"role": "system", "content": "Return ONLY JSON."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2
+            temperature=0.2,
+            max_completion_tokens=8192,
+            top_p=1,
+            reasoning_effort="medium",
+            stream=True,
+            stop=None,
         )
 
-        text = response.choices[0].message.content
+        # Collect streaming chunks into a single response body for JSON parsing.
+        text_parts = []
+        for chunk in completion:
+            delta = chunk.choices[0].delta.content or ""
+            text_parts.append(delta)
+        text = "".join(text_parts)
 
         try:
             return json.loads(text)
