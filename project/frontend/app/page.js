@@ -59,12 +59,14 @@ export default function HomePage() {
   const [commandInput, setCommandInput] = useState("");
   const [touchStartX, setTouchStartX] = useState(null);
   const [judgeScore, setJudgeScore] = useState(null);
+  const [improvementScore, setImprovementScore] = useState(0);
 
   const memoryTop3 = useMemo(() => usedMemories.slice(0, 3), [usedMemories]);
   const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
   const beforeConfidence = Number(base?.confidence || 0);
   const afterConfidence = Number(improved?.confidence || 0);
-  const improvement = Math.max(0, Math.round((afterConfidence - beforeConfidence) * 100));
+  const calculatedImprovement = Math.max(0, Math.round((afterConfidence - beforeConfidence) * 100));
+  const improvement = improvementScore > 0 ? improvementScore : calculatedImprovement;
   const appliedPatterns = useMemo(() => normalizePatterns(improved), [improved]);
   const componentTags = useMemo(() => normalizeTags(improved), [improved]);
 
@@ -164,6 +166,7 @@ export default function HomePage() {
           ? data.used_memories
           : [];
       setUsedMemories(resolvedMemories);
+      setImprovementScore(Number(data?.improvement || 0));
 
       const outcome = Number(data?.improved?.confidence || 0) >= 0.7 ? "Resolved" : "Failed";
       setIncidents((prev) => [{ summary: incidentText.slice(0, 56), status: outcome }, ...prev].slice(0, 8));
@@ -173,6 +176,7 @@ export default function HomePage() {
       setBase({ root_cause: "Service unavailable", fix: "Check API route health and logs", confidence: 0.28 });
       setImproved({ root_cause: "Memory unavailable", fix: "Bootstrap memory then retry analysis", confidence: 0.45 });
       setUsedMemories([]);
+      setImprovementScore(0);
       setCommandStatus("Analysis fallback mode");
     } finally {
       clearTimeout(t1);
