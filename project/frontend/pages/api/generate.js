@@ -12,22 +12,29 @@ function shortenForPrompt(text, maxChars = 1400) {
 }
 
 async function planner(error) {
-  const prompt = `
-Analyze this issue:
+  const prompt = `You are a senior DevOps engineer analyzing infrastructure incidents.
+  
+Incident:
 ${error}
 
-Return JSON:
+Analyze and categorize this incident. Return JSON:
 {
-  "category": "",
-  "keywords": []
+  "category": "PERFORMANCE|AVAILABILITY|SECURITY|CONFIG|RESOURCE|NETWORK|DATABASE|APPLICATION",
+  "keywords": ["key", "search", "terms"],
+  "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+  "likely_layer": "INFRASTRUCTURE|APPLICATION|DATABASE|NETWORK",
+  "investigation_hints": ["hint1", "hint2"]
 }
 `;
 
   const plan = await callLLM(prompt);
 
   return {
-    category: String(plan?.category || "unknown").toUpperCase(),
+    category: String(plan?.category || "UNKNOWN").toUpperCase(),
+    severity: String(plan?.severity || "MEDIUM").toUpperCase(),
+    layer: String(plan?.likely_layer || "APPLICATION").toUpperCase(),
     keywords: Array.isArray(plan?.keywords) ? plan.keywords : [],
+    hints: Array.isArray(plan?.investigation_hints) ? plan.investigation_hints : [],
   };
 }
 
@@ -35,40 +42,58 @@ function buildFinalPrompt(error, plan, memories) {
   const incidents = memories
     .map((m, i) => {
       const score = Number(m?.metadata?.score || 0).toFixed(2);
-      return `Incident ${i + 1}: ${m?.content || ""} (score: ${score})`;
+      const outcome = m?.metadata?.outcome || "unknown";
+      return `[${i + 1}] ${m?.content || ""} | Outcome: ${outcome} | Score: ${score}`;
     })
     .join("\n");
 
-  return `
+  return `You are a SENIOR DEVOPS ENGINEER analyzing production incidents.
+
+CURRENT INCIDENT:
 Category: ${plan.category}
+Severity: ${plan.severity}
+Layer: ${plan.layer}
 
-Past incidents:
-${incidents || "No relevant incidents found."}
-
-Solve:
+ERROR DETAILS:
 ${error}
 
-Return JSON:
+PAST SIMILAR INCIDENTS (Memory-backed context):
+${incidents || "No relevant incidents found."}
+
+ANALYSIS FRAMEWORK:
+1. DO NOT just repeat memory solutions - they are guidance only
+2. Identify ROOT CAUSE from patterns, not guesses
+3. Create SCALABLE, PRODUCTION-GRADE FIX (not band-aids)
+4. Suggest proactive monitoring/prevention strategies
+5. Consider team context and deployment constraints
+
+REQUIRED RESPONSE (JSON):
 {
-  "root_cause": "",
-  "fix": "",
-  "steps": "",
-  "confidence": 0.0
+  "root_cause": "Deep analysis of underlying issue (1-2 sentences)",
+  "fix": "Concrete, immediately actionable solution (detailed)",
+  "steps": "Step-by-step implementation guide with commands/configs",
+  "confidence": 0.0-1.0,
+  "monitoring": "How to verify fix + prevent recurrence",
+  "scalability_notes": "How this scales beyond single instance/team"
 }
 `;
 }
 
 function buildBasePrompt(error) {
-  return `
-Solve this issue:
+  return `You are a SENIOR DEVOPS ENGINEER.
+
+INCIDENT:
 ${error}
 
-Return ONLY JSON:
+WITHOUT external memory context, analyze this production incident and provide:
+
 {
-  "root_cause": "",
-  "fix": "",
-  "steps": "",
-  "confidence": 0.0
+  "root_cause": "Technical root cause analysis",
+  "fix": "Immediate, scalable solution",
+  "steps": "Implementation steps",
+  "confidence": 0.0-1.0,
+  "monitoring": "Verification and prevention",
+  "scalability_notes": "Scalable beyond one instance"
 }
 `;
 }
@@ -113,7 +138,7 @@ export default async function handler(req, res) {
 
     const filteredMemories = (Array.isArray(memories) ? memories : [])
       .filter((m) => (m?.metadata?.score || 0) > 0.6)
-      .slice(0, 3);
+      .slice(0, 5);
 
     const basePrompt = buildBasePrompt(conciseError);
     const improvedPrompt = buildFinalPrompt(conciseError, plan, filteredMemories);
@@ -126,29 +151,48 @@ export default async function handler(req, res) {
         callLLM(basePrompt),
         callLLM(improvedPrompt),
       ]);
-      console.log("LLM RAW:", { base, improved });
+      console.log("LLM ANALYSIS:", { base, improved, memory_hits: filteredMemories.length });
     } catch (e) {
       console.error("LLM ERROR:", e);
-      base = { root_cause: "Parsing failed", fix: "Retry request", confidence: 0.2 };
-      improved = { root_cause: "Parsing failed", fix: "Retry request", confidence: 0.2 };
+      base = { 
+        root_cause: "Analysis failed", 
+        fix: "Retry with diagnostic logs", 
+        steps: "1. Gather system logs\n2. Check monitoring dashboards\n3. Review recent changes",
+        confidence: 0.1,
+        monitoring: "Enable verbose logging",
+        scalability_notes: "N/A"
+      };
+      improved = base;
     }
 
+    // Enhanced confidence scoring
     const baseConfidence = Number(base?.confidence || 0);
     const improvedConfidence = Number(improved?.confidence || 0);
+    
+    // Boost confidence based on memory hits and plan quality
+    const memoryHitBoost = Math.min(0.15, filteredMemories.length * 0.05);
+    const adjustedImprovedConfidence = Math.min(1.0, improvedConfidence + memoryHitBoost);
+    
     const improvement = Math.max(
       0,
-      Math.round((improvedConfidence - baseConfidence) * 100)
+      Math.round((adjustedImprovedConfidence - baseConfidence) * 100)
     );
 
     res.json({
       base,
-      improved,
+      improved: {
+        ...improved,
+        confidence: adjustedImprovedConfidence,
+      },
       used_memories: filteredMemories,
       memory_used: filteredMemories.length,
       learning_mode: "ACTIVE",
       memory_entries: Array.isArray(memories) ? memories.length : 0,
       improvement: `${improvement}%`,
-      category,
+      category: plan.category,
+      severity: plan.severity,
+      layer: plan.layer,
+      hints: plan.hints,
       plan,
       team_id,
       user_id,

@@ -24,6 +24,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("Ready to analyze incidents");
   const [category, setCategory] = useState("UNKNOWN");
+  const [severity, setSeverity] = useState("MEDIUM");
+  const [layer, setLayer] = useState("APPLICATION");
   const [baseSolution, setBaseSolution] = useState(null);
   const [improvedSolution, setImprovedSolution] = useState(null);
   const [usedMemories, setUsedMemories] = useState([]);
@@ -38,6 +40,7 @@ export default function HomePage() {
   const [showStats, setShowStats] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
   const [errorMessage, setErrorMessage] = useState("");
+  const [hints, setHints] = useState([]);
   const textAreaRef = useRef(null);
 
   // Computed values
@@ -112,7 +115,7 @@ export default function HomePage() {
     setLoading(true);
     setFeedbackEnabled(false);
     setErrorMessage("");
-    setStatus("🔍 Analyzing incident with AI agents...");
+    setStatus("🔍 Analyzing incident with senior DevOps framework...");
 
     try {
       const res = await fetch("/api/generate", {
@@ -128,11 +131,14 @@ export default function HomePage() {
       setImprovedSolution(data.improved || {});
       setUsedMemories((data.used_memories || []).slice(0, 5));
       setCategory(String(data.category || "UNKNOWN").toUpperCase());
+      setSeverity(String(data.severity || "MEDIUM").toUpperCase());
+      setLayer(String(data.layer || "APPLICATION").toUpperCase());
+      setHints(Array.isArray(data.hints) ? data.hints : []);
       setLearningMode(data.learning_mode || "ACTIVE");
       setConfidence(data.improved?.confidence ?? 0);
       setMemoryUsed(data.memory_used || 0);
       setFeedbackEnabled(true);
-      setStatus(`✅ Analysis complete. Retrieved ${data.memory_used || 0} memory entries.`);
+      setStatus(`✅ Analysis complete. Improvement: ${data.improvement}`);
 
       // Add to incident feed
       const entry = {
@@ -141,6 +147,7 @@ export default function HomePage() {
         status: "Analyzing",
         timestamp: new Date().toLocaleTimeString(),
         category: data.category,
+        severity: data.severity,
         confidence: data.improved?.confidence ?? 0,
       };
       setIncidentFeed((prev) => [entry, ...prev].slice(0, 20));
@@ -334,26 +341,84 @@ export default function HomePage() {
               {/* Results Section */}
               {improvedSolution && (
                 <div style={styles.resultsSection}>
+                  {/* Analysis Metadata */}
+                  <div style={styles.analysisMetadata}>
+                    <div style={styles.metadataItem}>
+                      <span style={styles.metadataLabel}>Category</span>
+                      <span style={styles.metadataBadge}>{category}</span>
+                    </div>
+                    <div style={styles.metadataItem}>
+                      <span style={styles.metadataLabel}>Severity</span>
+                      <span style={{
+                        ...styles.metadataBadge,
+                        background: severity === "CRITICAL" ? "rgba(239,68,68,0.15)" : 
+                                   severity === "HIGH" ? "rgba(245,158,11,0.15)" : 
+                                   "rgba(99,102,241,0.15)",
+                        color: severity === "CRITICAL" ? "#fca5a5" : 
+                               severity === "HIGH" ? "#fcd34d" : "#a5b4fc"
+                      }}>
+                        {severity}
+                      </span>
+                    </div>
+                    <div style={styles.metadataItem}>
+                      <span style={styles.metadataLabel}>Layer</span>
+                      <span style={styles.metadataBadge}>{layer}</span>
+                    </div>
+                    <div style={styles.metadataItem}>
+                      <span style={styles.metadataLabel}>Confidence</span>
+                      <span style={styles.metadataBadge}>{(confidence * 100).toFixed(0)}%</span>
+                    </div>
+                  </div>
+
+                  {/* Investigation Hints */}
+                  {hints && hints.length > 0 && (
+                    <div style={styles.hintsBox}>
+                      <h4 style={styles.hintsTitle}>💡 Investigation Hints</h4>
+                      <ul style={styles.hintsList}>
+                        {hints.map((hint, idx) => (
+                          <li key={idx} style={styles.hint}>{hint}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   <div style={styles.resultGrid}>
                     {/* Before Solution */}
                     <div style={styles.resultCard}>
                       <h3 style={styles.resultTitle}>📍 Without Memory</h3>
                       <pre style={styles.resultContent}>{formatResponse(baseSolution)}</pre>
                       <div style={styles.resultMeta}>
-                        <span>Base Response</span>
+                        <span>Base Analysis</span>
+                        <span>confidence: {(baseSolution?.confidence * 100).toFixed(0) || 0}%</span>
                       </div>
                     </div>
 
                     {/* After Solution */}
                     <div style={{ ...styles.resultCard, borderLeftColor: "#22c55e" }}>
-                      <h3 style={styles.resultTitle}>✨ With Memory & Learning</h3>
+                      <h3 style={styles.resultTitle}>✨ Senior DevOps Analysis</h3>
                       <pre style={styles.resultContent}>{formatResponse(improvedSolution)}</pre>
                       <div style={styles.resultMeta}>
-                        <span>🧠 {memoryUsed} memories used</span>
+                        <span>🧠 {memoryUsed} memories</span>
                         <span>confidence: {(confidence * 100).toFixed(0)}%</span>
                       </div>
                     </div>
                   </div>
+
+                  {/* Monitoring & Prevention */}
+                  {improvedSolution?.monitoring && (
+                    <div style={styles.monitoringBox}>
+                      <h4 style={styles.monitoringTitle}>📊 Monitoring & Prevention</h4>
+                      <p style={styles.monitoringText}>{improvedSolution.monitoring}</p>
+                    </div>
+                  )}
+
+                  {/* Scalability Notes */}
+                  {improvedSolution?.scalability_notes && (
+                    <div style={styles.scalabilityBox}>
+                      <h4 style={styles.scalabilityTitle}>📈 Production Scalability</h4>
+                      <p style={styles.scalabilityText}>{improvedSolution.scalability_notes}</p>
+                    </div>
+                  )}
 
                   {/* Feedback Buttons */}
                   <div style={styles.feedbackRow}>
@@ -987,5 +1052,97 @@ const styles = {
   memoryFix: {
     color: "#94a3b8",
     fontSize: "0.9rem",
+  },
+  analysisMetadata: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+    gap: 12,
+    marginBottom: 20,
+  },
+  metadataItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    background: "rgba(15,23,42,0.4)",
+    padding: 12,
+    borderRadius: 8,
+    border: "1px solid rgba(148,163,184,0.1)",
+  },
+  metadataLabel: {
+    fontSize: "0.8rem",
+    color: "#64748b",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
+  },
+  metadataBadge: {
+    fontSize: "0.9rem",
+    fontWeight: 700,
+    color: "#a5b4fc",
+    background: "rgba(99,102,241,0.15)",
+    padding: "4px 8px",
+    borderRadius: 4,
+    textAlign: "center",
+  },
+  hintsBox: {
+    background: "rgba(59,130,246,0.1)",
+    border: "1px solid rgba(59,130,246,0.2)",
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 20,
+  },
+  hintsTitle: {
+    margin: "0 0 10px 0",
+    fontSize: "0.9rem",
+    fontWeight: 600,
+    color: "#f1f5f9",
+  },
+  hintsList: {
+    margin: 0,
+    paddingLeft: 20,
+  },
+  hint: {
+    margin: "6px 0",
+    fontSize: "0.9rem",
+    color: "#cbd5e1",
+    lineHeight: 1.4,
+  },
+  monitoringBox: {
+    background: "rgba(34,197,94,0.1)",
+    border: "1px solid rgba(34,197,94,0.2)",
+    borderRadius: 10,
+    padding: 16,
+    marginTop: 16,
+  },
+  monitoringTitle: {
+    margin: "0 0 10px 0",
+    fontSize: "0.95rem",
+    fontWeight: 600,
+    color: "#86efac",
+  },
+  monitoringText: {
+    margin: "0 0 10px 0",
+    fontSize: "0.9rem",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
+  },
+  scalabilityBox: {
+    background: "rgba(168,85,247,0.1)",
+    border: "1px solid rgba(168,85,247,0.2)",
+    borderRadius: 10,
+    padding: 16,
+    marginTop: 12,
+  },
+  scalabilityTitle: {
+    margin: "0 0 10px 0",
+    fontSize: "0.95rem",
+    fontWeight: 600,
+    color: "#e9d5ff",
+  },
+  scalabilityText: {
+    margin: 0,
+    fontSize: "0.9rem",
+    color: "#cbd5e1",
+    lineHeight: 1.5,
   },
 };
