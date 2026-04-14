@@ -53,6 +53,16 @@ function relevance(memory) {
   return Math.max(55, Math.min(99, s + 4));
 }
 
+function healthBadge(status) {
+  if (status === "live") {
+    return "border border-emerald-500/40 bg-emerald-500/15 text-emerald-300";
+  }
+  if (status === "slow") {
+    return "border border-amber-500/40 bg-amber-500/15 text-amber-300";
+  }
+  return "border border-rose-500/40 bg-rose-500/15 text-rose-300";
+}
+
 export default function HomePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -72,6 +82,8 @@ export default function HomePage() {
   const [touchStartX, setTouchStartX] = useState(null);
   const [judgeScore, setJudgeScore] = useState(null);
   const [improvementScore, setImprovementScore] = useState(0);
+  const [apiHealthStatus, setApiHealthStatus] = useState("down");
+  const [apiLatencyMs, setApiLatencyMs] = useState(null);
 
   const memoryTop3 = useMemo(() => usedMemories.slice(0, 3), [usedMemories]);
   const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
@@ -95,6 +107,68 @@ export default function HomePage() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    try {
+      const savedTab = window.localStorage.getItem("opsmind-desktop-tab");
+      if (savedTab && DESKTOP_TABS.includes(savedTab)) {
+        setDesktopTab(savedTab);
+      }
+    } catch {
+      // Ignore localStorage access issues in restricted contexts.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("opsmind-desktop-tab", desktopTab);
+    } catch {
+      // Ignore localStorage write issues in restricted contexts.
+    }
+  }, [desktopTab]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function checkApiHealth() {
+      const start = performance.now();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      try {
+        const response = await fetch("/api/health", {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+
+        const elapsed = Math.round(performance.now() - start);
+        if (!active) return;
+
+        if (!response.ok) {
+          setApiHealthStatus("down");
+          setApiLatencyMs(null);
+          return;
+        }
+
+        setApiLatencyMs(elapsed);
+        setApiHealthStatus(elapsed > 700 ? "slow" : "live");
+      } catch {
+        if (!active) return;
+        setApiHealthStatus("down");
+        setApiLatencyMs(null);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+
+    void checkApiHealth();
+    const interval = setInterval(checkApiHealth, 20000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -345,6 +419,10 @@ export default function HomePage() {
           <div className="flex items-center gap-2 text-[11px] md:gap-3 md:text-xs">
             <span className="rounded-full border border-green-500/40 bg-green-500/15 px-2.5 py-1 text-green-300">Learning Active</span>
             <span className="rounded-full border border-purple-500/40 bg-purple-500/15 px-2.5 py-1 text-purple-200">Memory {memoryCount}</span>
+            <span className={`rounded-full px-2.5 py-1 ${healthBadge(apiHealthStatus)}`}>
+              API {apiHealthStatus.toUpperCase()}
+              {apiLatencyMs !== null ? ` ${apiLatencyMs}ms` : ""}
+            </span>
             <span className="rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1">ops-user</span>
           </div>
         </div>
@@ -418,6 +496,7 @@ export default function HomePage() {
         </aside>
 
         <main className="space-y-6">
+          <div key={desktopTab} className="animate-fadeIn transition-all duration-300">
           {desktopTab === "dashboard" && (
             <>
           <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
@@ -591,6 +670,7 @@ export default function HomePage() {
               </div>
             </section>
           )}
+          </div>
         </main>
 
         <aside className="sticky top-24 h-fit rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
