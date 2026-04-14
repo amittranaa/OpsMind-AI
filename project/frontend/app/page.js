@@ -117,7 +117,8 @@ export default function HomePage() {
   }, [commandStatus]);
 
   async function analyzeIncident(incidentOverride = "") {
-    const incidentText = String(incidentOverride || error).trim();
+    const incidentSeed = typeof incidentOverride === "string" ? incidentOverride : "";
+    const incidentText = String(incidentSeed || error).trim();
     if (!incidentText || loading) return;
 
     setLoading(true);
@@ -374,7 +375,7 @@ export default function HomePage() {
                 className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
               />
               <button
-                onClick={analyzeIncident}
+                onClick={() => void analyzeIncident()}
                 disabled={loading}
                 className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -497,7 +498,7 @@ export default function HomePage() {
                 className="mt-3 min-h-36 w-full rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
               />
               <button
-                onClick={analyzeIncident}
+                onClick={() => void analyzeIncident()}
                 disabled={loading}
                 className="sticky bottom-20 mt-4 w-full rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] disabled:opacity-60"
               >
