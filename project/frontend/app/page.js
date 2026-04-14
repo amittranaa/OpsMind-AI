@@ -279,15 +279,12 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-slate-800/90 bg-[#0f172a]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="hidden h-12 items-center rounded-xl border border-indigo-400/30 bg-slate-950/70 px-2 md:flex">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-indigo-400/40 bg-slate-950/80 p-1 shadow-lg shadow-indigo-900/30">
               <img
                 src="/opsmind-logo.svg"
                 alt="OpsMind AI"
-                className="h-8 w-auto object-contain"
+                className="h-full w-full rounded-full object-contain"
               />
-            </div>
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1 md:hidden">
-              <img src="/opsmind-mark.svg" alt="OpsMind AI" className="h-full w-full object-contain" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-slate-100 md:text-lg">OpsMind AI</h1>
