@@ -46,6 +46,7 @@ export default function HomePage() {
   const [showPalette, setShowPalette] = useState(false);
   const [commandInput, setCommandInput] = useState("");
   const [touchStartX, setTouchStartX] = useState(null);
+  const [judgeScore, setJudgeScore] = useState(null);
 
   const memoryTop3 = useMemo(() => usedMemories.slice(0, 3), [usedMemories]);
   const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
@@ -184,6 +185,28 @@ export default function HomePage() {
     }
   }
 
+  async function runJudgeTest() {
+    setCommandStatus("Running judge scenario scorecard...");
+    try {
+      const response = await fetch("/api/judge-test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-team-id": "opsmind-default",
+          "x-user-id": "ops-user",
+        },
+        body: JSON.stringify({ bootstrap: true }),
+      });
+
+      const data = await response.json();
+      const score = Number(data?.summary?.score_percent || 0);
+      setJudgeScore(score);
+      setCommandStatus(`Judge scorecard completed: ${score}%`);
+    } catch (_err) {
+      setCommandStatus("Judge scorecard failed");
+    }
+  }
+
   function onSwipeStart(event) {
     setTouchStartX(event.touches?.[0]?.clientX ?? null);
   }
@@ -256,12 +279,15 @@ export default function HomePage() {
       <header className="sticky top-0 z-30 border-b border-slate-800/90 bg-[#0f172a]/90 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1">
+            <div className="hidden h-12 items-center rounded-xl border border-indigo-400/30 bg-slate-950/70 px-2 md:flex">
               <img
-                src="/opsmind-mark.svg"
+                src="/opsmind-logo.svg"
                 alt="OpsMind AI"
-                className="h-full w-full object-contain"
+                className="h-8 w-auto object-contain"
               />
+            </div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-indigo-400/40 bg-slate-900/70 p-1 md:hidden">
+              <img src="/opsmind-mark.svg" alt="OpsMind AI" className="h-full w-full object-contain" />
             </div>
             <div>
               <h1 className="text-base font-semibold text-slate-100 md:text-lg">OpsMind AI</h1>
@@ -298,6 +324,37 @@ export default function HomePage() {
           <div className="animate-fadeIn rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-200">{commandStatus}</div>
         </div>
       )}
+
+      <section className="mx-auto mt-4 max-w-[1600px] px-4 lg:px-8">
+        <div className="rounded-2xl border border-slate-700/60 bg-gradient-to-r from-indigo-950/50 via-slate-900/70 to-purple-950/40 p-4 shadow-card backdrop-blur md:p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-indigo-300">Live AI Agent Control</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-100 md:text-xl">Production Incident Intelligence Console</h2>
+              <p className="mt-1 text-xs text-slate-300 md:text-sm">Run judge scenarios, seed memory, and demonstrate consistent reasoning with memory relevance control.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={runJudgeTest}
+                className="rounded-xl border border-indigo-400/40 bg-indigo-500/20 px-3 py-2 text-xs font-medium text-indigo-100 transition hover:bg-indigo-500/30"
+              >
+                Run Judge Test
+              </button>
+              <button
+                onClick={bootstrapMemory}
+                className="rounded-xl border border-purple-400/40 bg-purple-500/20 px-3 py-2 text-xs font-medium text-purple-100 transition hover:bg-purple-500/30"
+              >
+                Bootstrap Memory
+              </button>
+              {judgeScore !== null && (
+                <span className="rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200">
+                  Judge Score {judgeScore}%
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="mx-auto hidden max-w-[1600px] grid-cols-[220px,1fr,320px] gap-6 px-8 py-6 lg:grid">
         <aside className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-4 shadow-card backdrop-blur">
