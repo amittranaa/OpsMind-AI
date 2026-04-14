@@ -16,6 +16,18 @@ function normalizeRoot(result) {
   return result.root_cause || "Unknown";
 }
 
+function normalizePatterns(result) {
+  if (!result || typeof result === "string") return [];
+  if (!Array.isArray(result.applied_patterns)) return [];
+  return result.applied_patterns.filter((item) => typeof item === "string" && item.trim()).slice(0, 3);
+}
+
+function normalizeTags(result) {
+  if (!result || typeof result === "string") return [];
+  if (!Array.isArray(result.component_tags)) return [];
+  return result.component_tags.filter((item) => typeof item === "string" && item.trim()).slice(0, 4);
+}
+
 function getSummary(memory) {
   if (memory?.metadata?.error_summary) return memory.metadata.error_summary;
   return String(memory?.content || "").split("|")[0]?.trim() || "No summary";
@@ -53,6 +65,8 @@ export default function HomePage() {
   const beforeConfidence = Number(base?.confidence || 0);
   const afterConfidence = Number(improved?.confidence || 0);
   const improvement = Math.max(0, Math.round((afterConfidence - beforeConfidence) * 100));
+  const appliedPatterns = useMemo(() => normalizePatterns(improved), [improved]);
+  const componentTags = useMemo(() => normalizeTags(improved), [improved]);
 
   useEffect(() => {
     function onKeyDown(event) {
@@ -415,7 +429,24 @@ export default function HomePage() {
                 <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
                 <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using past Redis incidents + deployment patterns</p>
+                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using memory-supported production patterns</p>
+                {appliedPatterns.length > 0 && (
+                  <div className="mt-3 text-xs text-emerald-200">
+                    <p className="font-medium">🧠 Applied patterns:</p>
+                    {appliedPatterns.map((pattern) => (
+                      <p key={pattern} className="mt-1">- {pattern}</p>
+                    ))}
+                  </div>
+                )}
+                {componentTags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {componentTags.map((tag) => (
+                      <span key={tag} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                        [{tag}]
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </section>
@@ -518,7 +549,24 @@ export default function HomePage() {
                 <p>{normalizeFix(improved)}</p>
                 <p className="mt-2 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
                 <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using past Redis incidents + deployment patterns</p>
+                <p className="mt-1 text-xs text-emerald-300">⚡ Enhanced using memory-supported production patterns</p>
+                {appliedPatterns.length > 0 && (
+                  <div className="mt-2 text-xs text-emerald-200">
+                    <p className="font-medium">🧠 Applied patterns:</p>
+                    {appliedPatterns.map((pattern) => (
+                      <p key={`mobile-${pattern}`} className="mt-1">- {pattern}</p>
+                    ))}
+                  </div>
+                )}
+                {componentTags.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {componentTags.map((tag) => (
+                      <span key={`mobile-tag-${tag}`} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                        [{tag}]
+                      </span>
+                    ))}
+                  </div>
+                )}
                 <p className="mt-2 text-xs text-purple-200">Memory used: {memoryCount}</p>
               </div>
             </div>
