@@ -1,10 +1,9 @@
 function getLLMMode() {
-  const explicitMode = String(process.env.LLM_MODE || "auto").toLowerCase();
-  const hasGroqKey = Boolean(process.env.GROQ_API_KEY);
+  const explicitMode = String(process.env.LLM_MODE || "online").toLowerCase();
 
   if (explicitMode === "online") return "online";
   if (explicitMode === "local") return "local";
-  return hasGroqKey ? "online" : "local";
+  return "online";
 }
 
 function localReasoningFallback(prompt) {
