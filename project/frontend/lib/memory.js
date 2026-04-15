@@ -59,6 +59,30 @@ function normalizeMcpResult(result) {
   return result;
 }
 
+function normalizeMemoryItem(item) {
+  if (!item || typeof item !== "object") {
+    return item;
+  }
+
+  const tags = Array.isArray(item.tags) ? item.tags : [];
+
+  return {
+    ...item,
+    content: item.content || item.text || "",
+    metadata: {
+      ...(item.metadata || {}),
+      team_id: item.team_id || item.metadata?.team_id || tags.find((tag) => tag === TEAM_ID) || TEAM_ID,
+      context: item.context || item.metadata?.context || "incident",
+      tags,
+      fact_type: item.fact_type || item.metadata?.fact_type || "world",
+      source: item.source || item.metadata?.source || "hindsight",
+      error_summary: item.text || item.content || item.metadata?.error_summary || "",
+      fix_summary: item.metadata?.fix_summary || item.content || item.text || "",
+      stored_at: item.date || item.mentioned_at || item.occurred_start || item.metadata?.stored_at || "",
+    },
+  };
+}
+
 async function mcpRequest(method, params = {}) {
   ensureApiKey();
 
@@ -196,12 +220,12 @@ function getText(value) {
 }
 
 function normalizeMemories(data) {
-  if (Array.isArray(data?.memories)) return data.memories;
-  if (Array.isArray(data?.items)) return data.items;
-  if (Array.isArray(data?.structuredContent?.items)) return data.structuredContent.items;
-  if (Array.isArray(data?.results)) return data.results;
-  if (Array.isArray(data?.data)) return data.data;
-  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.memories)) return data.memories.map(normalizeMemoryItem);
+  if (Array.isArray(data?.items)) return data.items.map(normalizeMemoryItem);
+  if (Array.isArray(data?.structuredContent?.items)) return data.structuredContent.items.map(normalizeMemoryItem);
+  if (Array.isArray(data?.results)) return data.results.map(normalizeMemoryItem);
+  if (Array.isArray(data?.data)) return data.data.map(normalizeMemoryItem);
+  if (Array.isArray(data)) return data.map(normalizeMemoryItem);
   return [];
 }
 
