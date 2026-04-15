@@ -170,6 +170,15 @@ async function callMcpTool(mode, args) {
   return normalizeMcpResult(result);
 }
 
+async function callMcpToolByName(name, args) {
+  const result = await mcpRequest("tools/call", {
+    name,
+    arguments: args,
+  });
+
+  return normalizeMcpResult(result);
+}
+
 function getText(value) {
   return String(value || "").toLowerCase();
 }
@@ -302,10 +311,20 @@ ${incidentFix}`,
     },
   };
 
-  const result = await callMcpTool("store", {
-    team_id: TEAM_ID,
+  const result = await callMcpToolByName("sync_retain", {
     content: payload.content,
-    metadata: payload.metadata,
+    context: "incident",
+    timestamp: new Date().toISOString(),
+    tags: Array.from(new Set([TEAM_ID, ...(Array.isArray(tags) ? tags : ["incident"])])),
+    metadata: {
+      team_id: TEAM_ID,
+      source: "opsmind-ai",
+      score: String(payload.metadata.score),
+      error_summary: payload.metadata.error_summary,
+      fix_summary: payload.metadata.fix_summary,
+      root_cause: payload.metadata.root_cause,
+      stored_at: String(payload.metadata.stored_at),
+    },
   });
 
   clearMemoryCache();
@@ -324,13 +343,16 @@ ${incidentFix}`,
 export async function retrieveMemory(query, topK = 2) {
   ensureApiKey();
 
-  const result = await callMcpTool("search", {
-    team_id: TEAM_ID,
-    query: String(query || ""),
-    top_k: topK,
+  const result = await callMcpToolByName("list_memories", {
+    q: String(query || ""),
+    limit: Math.max(10, topK * 10),
+    offset: 0,
   });
 
-  return normalizeMemories(result);
+  return normalizeMemories(result).filter((memory) => {
+    const memoryText = `${memory?.content || ""} ${JSON.stringify(memory?.metadata || {})}`.toLowerCase();
+    return memoryText.includes(TEAM_ID) || memoryText.includes("incident");
+  });
 }
 
 export async function searchMemories(query) {
