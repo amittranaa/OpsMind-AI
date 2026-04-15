@@ -258,6 +258,7 @@ export default async function handler(req, res) {
     const plan = await planner(conciseError);
     console.log("PLAN:", plan);
 
+    const issueSignals = extractSignals(conciseError);
     const plannerKeywords = Array.isArray(plan?.keywords) ? plan.keywords : [];
     const searchQueryParts = [...issueSignals, ...plannerKeywords];
     const searchQuery = searchQueryParts.length ? searchQueryParts.join(" ") : conciseError;
@@ -270,7 +271,6 @@ export default async function handler(req, res) {
       memories = [];
     }
 
-    const issueSignals = extractSignals(conciseError);
     const stableInfra = hasStableInfraSignals(conciseError);
     const cacheDominant = issueSignals.has("cache") && (stableInfra || !issueSignals.has("redis"));
 
