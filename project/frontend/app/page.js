@@ -1,9 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import ReasoningTrace from "../components/ReasoningTrace";
 
 const MOBILE_TABS = ["dashboard", "analyze", "memory", "insights"];
 const DESKTOP_TABS = ["dashboard", "incidents", "insights", "memory"];
+const DESKTOP_TAB_META = {
+  dashboard: {
+    label: "Dashboard",
+    description: "Command center for live analysis, incident intake, and response quality.",
+  },
+  incidents: {
+    label: "Incidents",
+    description: "Focused intake view for triage, recent cases, and quick re-analysis.",
+  },
+  insights: {
+    label: "Insights",
+    description: "Operational patterns, trend signals, and the latest analysis snapshot.",
+  },
+  memory: {
+    label: "Memory",
+    description: "Top retrieved memories with scoring and relevance context.",
+  },
+};
 
 function normalizeFix(result) {
   if (!result) return "No response yet.";
@@ -92,6 +111,7 @@ export default function HomePage() {
   const [base, setBase] = useState(null);
   const [improved, setImproved] = useState(null);
   const [usedMemories, setUsedMemories] = useState([]);
+  const [reasoningTrace, setReasoningTrace] = useState(null);
   const [incidents, setIncidents] = useState([
     { summary: "Redis timeout", status: "Resolved" },
     { summary: "API crash", status: "Failed" },
@@ -113,6 +133,7 @@ export default function HomePage() {
   const afterConfidence = Number(improved?.confidence || 0);
   const calculatedImprovement = Math.max(0, Math.round((afterConfidence - beforeConfidence) * 100));
   const improvement = improvementScore > 0 ? improvementScore : calculatedImprovement;
+  const activeDesktopMeta = DESKTOP_TAB_META[desktopTab] || DESKTOP_TAB_META.dashboard;
   const appliedPatterns = useMemo(() => normalizePatterns(improved), [improved]);
   const componentTags = useMemo(() => normalizeTags(improved), [improved]);
 
@@ -274,6 +295,7 @@ export default function HomePage() {
           ? data.used_memories
           : [];
       setUsedMemories(resolvedMemories);
+      setReasoningTrace(data?.trace || null);
       setImprovementScore(Number(data?.improvement || 0));
       const resolvedMode = String(data?.mode || (resolvedMemories.length === 0 ? "reasoning_only" : "memory_guided"));
       setAnalysisMode(resolvedMode);
@@ -290,6 +312,7 @@ export default function HomePage() {
       setBase({ root_cause: "Service unavailable", fix: "Check API route health and logs", confidence: 0.28 });
       setImproved({ root_cause: "Memory unavailable", fix: "Bootstrap memory then retry analysis", confidence: 0.45 });
       setUsedMemories([]);
+      setReasoningTrace(null);
       setImprovementScore(0);
       setAnalysisMode("reasoning_only");
       setCommandStatus("Analysis fallback mode");
@@ -501,23 +524,34 @@ export default function HomePage() {
         </div>
       </section>
 
-      <div className="mx-auto hidden max-w-[1600px] grid-cols-[220px,1fr,320px] gap-6 px-8 py-6 lg:grid">
-        <aside className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-4 shadow-card backdrop-blur">
+      <div className="mx-auto hidden max-w-[1600px] grid-cols-[240px,1fr,320px] gap-6 px-8 py-6 lg:grid">
+        <aside className="sticky top-28 h-fit rounded-2xl border border-slate-700/60 bg-white/[0.03] p-4 shadow-card backdrop-blur">
+          <div className="mb-4 border-b border-slate-800/70 pb-3">
+            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Workspace</p>
+            <h3 className="mt-1 text-sm font-semibold text-slate-100">Desktop Sections</h3>
+            <p className="mt-1 text-xs text-slate-400">Switch views without changing the mobile experience.</p>
+          </div>
           <nav className="space-y-2">
             {DESKTOP_TABS.map((tab) => {
               const active = desktopTab === tab;
-              const title = tab.charAt(0).toUpperCase() + tab.slice(1);
+              const meta = DESKTOP_TAB_META[tab] || { label: tab, description: "" };
               return (
                 <button
                   key={tab}
                   onClick={() => setDesktopTab(tab)}
-                  className={`w-full rounded-xl px-3 py-2 text-left text-sm transition ${
+                  className={`group w-full rounded-xl border px-3 py-3 text-left text-sm transition-all duration-300 ${
                     active
-                      ? "bg-indigo-500/20 font-medium text-indigo-200"
-                      : "text-slate-300 hover:bg-slate-800/70"
+                      ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-100 shadow-lg shadow-indigo-900/20"
+                      : "border-slate-700/50 bg-slate-900/20 text-slate-300 hover:border-slate-600 hover:bg-slate-800/70"
                   }`}
                 >
-                  {title}
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium">{meta.label}</span>
+                    <span className={`h-2.5 w-2.5 rounded-full transition ${active ? "bg-indigo-300" : "bg-slate-600 group-hover:bg-slate-400"}`} />
+                  </div>
+                  <p className="mt-1 text-[11px] leading-4 text-slate-500 group-hover:text-slate-400">
+                    {meta.description}
+                  </p>
                 </button>
               );
             })}
@@ -526,190 +560,207 @@ export default function HomePage() {
 
         <main className="space-y-6">
           <div key={desktopTab} className="animate-fadeIn transition-all duration-300">
-          {desktopTab === "dashboard" && (
-            <>
-          <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
-            <p className="text-xs uppercase tracking-wide text-slate-400">Input Command Bar</p>
-            <div className="mt-3 flex items-start gap-3">
-              <textarea
-                value={error}
-                onChange={(e) => setError(e.target.value)}
-                placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
-                className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
-              />
-              <button
-                onClick={() => void analyzeIncident()}
-                disabled={loading}
-                className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {loading ? "Analyzing..." : "Analyze Incident"}
-              </button>
-            </div>
-            {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
-          </section>
-
-          <section className="rounded-2xl border border-slate-700/60 bg-white/[0.04] p-6 shadow-card backdrop-blur animate-fadeIn">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-semibold text-slate-100">AI Analysis</h2>
-                <p className="text-xs uppercase tracking-wide text-slate-400">Most Important Panel</p>
-              </div>
-              <span className="rounded-full border border-green-500/40 bg-green-500/15 px-3 py-1 text-xs text-green-300">+{improvement || 20}% better using memory</span>
-            </div>
-
-            <p className="mb-4 text-xs text-indigo-300">Learned from {memoryCount} past incidents</p>
-
-            <div className="mb-5 grid grid-cols-3 gap-2 text-xs text-slate-300">
-              {analysisFlow.map((item) => (
-                <div key={item} className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2">
-                  {item}
+            <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-br from-white/[0.06] via-slate-900/55 to-transparent p-5 shadow-card backdrop-blur">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Desktop Workspace</p>
+                  <h2 className="mt-1 text-2xl font-semibold text-slate-100">{activeDesktopMeta.label}</h2>
+                  <p className="mt-1 text-sm text-slate-300">{activeDesktopMeta.description}</p>
                 </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Before (No Memory)</p>
-                <p className="mt-2 text-sm text-slate-100">{normalizeFix(base)}</p>
-                <p className="mt-3 text-xs text-slate-400">Root Cause: {normalizeRoot(base)}</p>
+                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                  <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1">Active: {activeDesktopMeta.label}</span>
+                  <span className="rounded-full border border-indigo-400/30 bg-indigo-500/15 px-3 py-1 text-indigo-200">Memory {memoryCount}</span>
+                  <span className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-emerald-200">+{improvement || 20}% lift</span>
+                </div>
               </div>
-              <div className="rounded-xl border border-green-500/50 bg-green-900/20 p-4 shadow-lg shadow-green-900/20">
-                <p className="text-xs uppercase tracking-wide text-green-300">After (With Memory)</p>
-                <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
-                <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
-                <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">
-                  {analysisMode === "reasoning_only"
-                    ? "⚡ Reasoning-driven (memory not applicable)"
-                    : "⚡ Enhanced using memory-supported production patterns"}
-                </p>
-                {analysisMode === "reasoning_only" && (
-                  <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
-                    🧠 Why this works:
-                    <div className="mt-1">- Prevents overload propagation</div>
-                    <div className="mt-1">- Stabilizes system under peak traffic</div>
+            </section>
+
+            {desktopTab === "dashboard" && (
+              <>
+                <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Input Command Bar</p>
+                  <div className="mt-3 flex items-start gap-3">
+                    <textarea
+                      value={error}
+                      onChange={(e) => setError(e.target.value)}
+                      placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
+                      className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
+                    />
+                    <button
+                      onClick={() => void analyzeIncident()}
+                      disabled={loading}
+                      className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loading ? "Analyzing..." : "Analyze Incident"}
+                    </button>
                   </div>
-                )}
-                {appliedPatterns.length > 0 && (
-                  <div className="mt-3 text-xs text-emerald-200">
-                    <p className="font-medium">🧠 Applied patterns:</p>
-                    {appliedPatterns.map((pattern) => (
-                      <p key={pattern} className="mt-1">- {pattern}</p>
+                  {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
+                </section>
+
+                <section className="rounded-2xl border border-slate-700/60 bg-white/[0.04] p-6 shadow-card backdrop-blur animate-fadeIn">
+                  <div className="mb-4 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-2xl font-semibold text-slate-100">AI Analysis</h3>
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Most Important Panel</p>
+                    </div>
+                    <span className="rounded-full border border-green-500/40 bg-green-500/15 px-3 py-1 text-xs text-green-300">+{improvement || 20}% better using memory</span>
+                  </div>
+
+                  <p className="mb-4 text-xs text-indigo-300">Learned from {memoryCount} past incidents</p>
+
+                  <div className="mb-5 grid grid-cols-3 gap-2 text-xs text-slate-300">
+                    {analysisFlow.map((item) => (
+                      <div key={item} className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2">
+                        {item}
+                      </div>
                     ))}
                   </div>
-                )}
-                {componentTags.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {componentTags.map((tag) => (
-                      <span key={tag} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
-                        [{tag}]
-                      </span>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
+                      <p className="text-xs uppercase tracking-wide text-slate-400">Before (No Memory)</p>
+                      <p className="mt-2 text-sm text-slate-100">{normalizeFix(base)}</p>
+                      <p className="mt-3 text-xs text-slate-400">Root Cause: {normalizeRoot(base)}</p>
+                    </div>
+                    <div className="rounded-xl border border-green-500/50 bg-green-900/20 p-4 shadow-lg shadow-green-900/20">
+                      <p className="text-xs uppercase tracking-wide text-green-300">After (With Memory)</p>
+                      <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
+                      <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
+                      <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
+                      <p className="mt-1 text-xs text-emerald-300">
+                        {analysisMode === "reasoning_only"
+                          ? "⚡ Reasoning-driven (memory not applicable)"
+                          : "⚡ Enhanced using memory-supported production patterns"}
+                      </p>
+                      {analysisMode === "reasoning_only" && (
+                        <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
+                          🧠 Why this works:
+                          <div className="mt-1">- Prevents overload propagation</div>
+                          <div className="mt-1">- Stabilizes system under peak traffic</div>
+                        </div>
+                      )}
+                      {appliedPatterns.length > 0 && (
+                        <div className="mt-3 text-xs text-emerald-200">
+                          <p className="font-medium">🧠 Applied patterns:</p>
+                          {appliedPatterns.map((pattern) => (
+                            <p key={pattern} className="mt-1">- {pattern}</p>
+                          ))}
+                        </div>
+                      )}
+                      {componentTags.length > 0 && (
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {componentTags.map((tag) => (
+                            <span key={tag} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
+                              [{tag}]
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <ReasoningTrace trace={reasoningTrace} />
+                </section>
+
+                <section className="grid grid-cols-2 gap-6 pb-8">
+                  <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                    <h3 className="text-lg font-semibold">System Insights</h3>
+                    <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                      <li>70% timeout issues</li>
+                      <li>Most failures after deploy</li>
+                      <li>Memory-backed fixes show higher confidence trend</li>
+                    </ul>
+                  </article>
+                  <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                    <h3 className="text-lg font-semibold">Incident Feed</h3>
+                    <div className="mt-3 space-y-2">
+                      {incidents.map((incident, idx) => (
+                        <div key={`${incident.summary}-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
+                          <span>{incident.summary}</span>
+                          <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                </section>
+              </>
+            )}
+
+            {desktopTab === "incidents" && (
+              <>
+                <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Report Incident</p>
+                  <div className="mt-3 flex items-start gap-3">
+                    <textarea
+                      value={error}
+                      onChange={(e) => setError(e.target.value)}
+                      placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
+                      className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
+                    />
+                    <button
+                      onClick={() => void analyzeIncident()}
+                      disabled={loading}
+                      className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {loading ? "Analyzing..." : "Analyze Incident"}
+                    </button>
+                  </div>
+                  {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
+                </section>
+
+                <section className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                  <h3 className="text-lg font-semibold">Incident Feed</h3>
+                  <div className="mt-3 space-y-2">
+                    {incidents.map((incident, idx) => (
+                      <div key={`${incident.summary}-tab-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
+                        <span>{incident.summary}</span>
+                        <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
+                      </div>
                     ))}
                   </div>
-                )}
-              </div>
-            </div>
-          </section>
+                </section>
+              </>
+            )}
 
-          <section className="grid grid-cols-2 gap-6 pb-8">
-            <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-              <h3 className="text-lg font-semibold">System Insights</h3>
-              <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                <li>70% timeout issues</li>
-                <li>Most failures after deploy</li>
-                <li>Memory-backed fixes show higher confidence trend</li>
-              </ul>
-            </article>
-            <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-              <h3 className="text-lg font-semibold">Incident Feed</h3>
-              <div className="mt-3 space-y-2">
-                {incidents.map((incident, idx) => (
-                  <div key={`${incident.summary}-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
-                    <span>{incident.summary}</span>
-                    <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
-                  </div>
-                ))}
-              </div>
-            </article>
-          </section>
-            </>
-          )}
-
-          {desktopTab === "incidents" && (
-            <>
-              <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
-                <p className="text-xs uppercase tracking-wide text-slate-400">Report Incident</p>
-                <div className="mt-3 flex items-start gap-3">
-                  <textarea
-                    value={error}
-                    onChange={(e) => setError(e.target.value)}
-                    placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
-                    className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
-                  />
-                  <button
-                    onClick={() => void analyzeIncident()}
-                    disabled={loading}
-                    className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {loading ? "Analyzing..." : "Analyze Incident"}
-                  </button>
-                </div>
-                {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
+            {desktopTab === "insights" && (
+              <section className="grid grid-cols-2 gap-6 pb-8">
+                <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                  <h3 className="text-lg font-semibold">System Insights</h3>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                    <li>70% timeout issues</li>
+                    <li>Most failures after deploy</li>
+                    <li>Memory-backed fixes show higher confidence trend</li>
+                  </ul>
+                </article>
+                <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
+                  <h3 className="text-lg font-semibold">Current Analysis Snapshot</h3>
+                  <p className="mt-3 text-sm text-slate-200">Root Cause: {normalizeRoot(improved || base)}</p>
+                  <p className="mt-3 text-sm text-slate-100">{normalizeFix(improved || base)}</p>
+                </article>
               </section>
+            )}
 
-              <section className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                <h3 className="text-lg font-semibold">Incident Feed</h3>
-                <div className="mt-3 space-y-2">
-                  {incidents.map((incident, idx) => (
-                    <div key={`${incident.summary}-tab-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
-                      <span>{incident.summary}</span>
-                      <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
+            {desktopTab === "memory" && (
+              <section className="rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-lg font-semibold">Memory Details</h3>
+                  <span className="rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-200">Top 3</span>
+                </div>
+                <div className="space-y-3">
+                  {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory retrieved yet.</p>}
+                  {memoryTop3.map((memory, idx) => (
+                    <div key={`memory-tab-${idx}-${memory?.id || "m"}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm">
+                      <p className="text-xs text-slate-400">Summary</p>
+                      <p className="mt-1 text-slate-100">{getSummary(memory)}</p>
+                      <div className="mt-2 flex items-center justify-between text-xs">
+                        <span className="text-purple-200">Score {score(memory)}%</span>
+                        <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
+                      </div>
                     </div>
                   ))}
                 </div>
               </section>
-            </>
-          )}
-
-          {desktopTab === "insights" && (
-            <section className="grid grid-cols-2 gap-6 pb-8">
-              <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                <h3 className="text-lg font-semibold">System Insights</h3>
-                <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                  <li>70% timeout issues</li>
-                  <li>Most failures after deploy</li>
-                  <li>Memory-backed fixes show higher confidence trend</li>
-                </ul>
-              </article>
-              <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                <h3 className="text-lg font-semibold">Current Analysis Snapshot</h3>
-                <p className="mt-3 text-sm text-slate-200">Root Cause: {normalizeRoot(improved || base)}</p>
-                <p className="mt-3 text-sm text-slate-100">{normalizeFix(improved || base)}</p>
-              </article>
-            </section>
-          )}
-
-          {desktopTab === "memory" && (
-            <section className="rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-lg font-semibold">Memory Details</h3>
-                <span className="rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-200">Top 3</span>
-              </div>
-              <div className="space-y-3">
-                {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory retrieved yet.</p>}
-                {memoryTop3.map((memory, idx) => (
-                  <div key={`memory-tab-${idx}-${memory?.id || "m"}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm">
-                    <p className="text-xs text-slate-400">Summary</p>
-                    <p className="mt-1 text-slate-100">{getSummary(memory)}</p>
-                    <div className="mt-2 flex items-center justify-between text-xs">
-                      <span className="text-purple-200">Score {score(memory)}%</span>
-                      <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
+            )}
           </div>
         </main>
 

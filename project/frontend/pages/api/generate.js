@@ -1,6 +1,7 @@
 import { cachedSearch } from "../../lib/memory";
 import { callLLM } from "../../lib/llm";
 import { rateLimit } from "../../lib/rate-limit";
+import { domainMatch, selectMemories } from "../../lib/relevance";
 
 function shortenForPrompt(text, maxChars = 1400) {
   const value = String(text || "").trim();
@@ -9,6 +10,19 @@ function shortenForPrompt(text, maxChars = 1400) {
   }
 
   return `${value.slice(0, maxChars)}...`;
+}
+
+function memoryKey(memory) {
+  return String(
+    memory?.id ||
+    memory?.metadata?.id ||
+    memory?.metadata?.error_summary ||
+    memory?.content ||
+    ""
+  )
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function extractSignals(text) {
@@ -127,25 +141,6 @@ function deriveComponentTags(text) {
   return tags.slice(0, 4);
 }
 
-function memoryRelevance(issueText, memory) {
-  const issueSignals = extractSignals(issueText);
-  const memoryText = `${memory?.content || ""} ${memory?.metadata?.error_summary || ""} ${memory?.metadata?.fix_summary || ""}`;
-  const memorySignals = extractSignals(memoryText);
-
-  if (issueSignals.size > 0 && memorySignals.size === 0) {
-    return 0;
-  }
-
-  let overlap = 0;
-  issueSignals.forEach((signal) => {
-    if (memorySignals.has(signal)) overlap += 1;
-  });
-
-  const signalScore = issueSignals.size > 0 ? overlap / issueSignals.size : 0;
-  const qualityScore = Number(memory?.metadata?.score || 0);
-  return signalScore * 0.8 + qualityScore * 0.2;
-}
-
 async function planner(error) {
   const prompt = `You are a senior DevOps engineer analyzing infrastructure incidents.
   
@@ -173,88 +168,49 @@ Analyze and categorize this incident. Return JSON:
   };
 }
 
-function buildFinalPrompt(error, plan, memories) {
-  const incidents = memories
-    .map((m, i) => {
-      const score = Number(m?.metadata?.score || 0).toFixed(2);
-      const outcome = m?.metadata?.outcome || "unknown";
-      return `[${i + 1}] ${m?.content || ""} | Outcome: ${outcome} | Score: ${score}`;
-    })
-    .join("\n");
+function buildPrompt(error, plan, memories, mode) {
+  const memoryBlock = mode === "reasoning_only"
+    ? "No memory used. Reason from current issue only."
+    : (memories || [])
+        .map((memory, index) => {
+          const score = Number(memory?.relevance || 0).toFixed(2);
+          return `[${index + 1}] [${score}] ${memory?.content || ""}`;
+        })
+        .join("\n");
 
-  return `You are a senior DevOps AI system that improves decisions using memory.
+  return `You are a senior DevOps AI system.
 
-STRICT RULES:
-- ALWAYS analyze the current issue first
-- Memory is SUPPORTING context, not the main answer
-- Combine memory + reasoning into a BETTER solution
-- NEVER reduce solution quality compared to baseline
-- Prefer scalable + production-grade fixes (scaling, clustering, infra)
-- If memory is narrow, EXPAND it with reasoning
-- If incident is multi-layer, include primary and contributing causes across layers
-- If system involves multiple components, explicitly explain cascading impact
-- Include traffic control strategies (rate limiting, backpressure, circuit breaker)
-- Confidence must be realistic (0.85 to 0.95)
-- If current issue contradicts memory patterns, ignore memory completely
-- Prioritize current issue signals over historic patterns
-- If system metrics indicate Redis and DB are stable, do not suggest Redis/DB scaling
+RULES:
+- Reason about the CURRENT issue first.
+- Use memory ONLY if relevant.
+- If mode = reasoning_only, IGNORE memory completely.
+- If memory is used, treat higher relevance as stronger signals.
 
-CURRENT ISSUE:
+Mode: ${mode}
+
+Current Issue:
 ${error}
 
-CURRENT INCIDENT METADATA:
+Current Incident Metadata:
 - Category: ${plan.category}
 - Severity: ${plan.severity}
 - Layer: ${plan.layer}
 
-MEMORY:
-${incidents || "No relevant incidents found."}
+Memory (relevance in brackets):
+${memoryBlock}
 
 TASK:
-1. Identify correct root cause
-2. Compare with memory
-3. Improve solution beyond memory
-4. Ensure final answer is STRONGER than baseline
+1) Analyze root cause
+2) Decide if memory helps
+3) Produce a stronger, multi-layer fix
 
-RETURN JSON ONLY:
+Return JSON:
 {
   "root_cause": "",
   "fix": "",
-  "steps": "",
+  "steps": [],
   "confidence": 0.0,
-  "improvement_note": "",
-  "applied_patterns": [""],
-  "component_tags": [""]
-}`;
-}
-
-function buildReasoningOnlyPrompt(error, plan) {
-  return `You are a senior DevOps AI system running in REASONING-ONLY mode.
-
-STRICT RULES:
-- Ignore historic memory patterns for this incident
-- Use ONLY current issue signals
-- If system metrics indicate Redis and DB are stable, DO NOT suggest Redis or DB scaling
-- Explain cascading impact if multiple components are affected
-- Confidence must be realistic (0.85 to 0.95)
-
-CURRENT ISSUE:
-${error}
-
-CURRENT INCIDENT METADATA:
-- Category: ${plan.category}
-- Severity: ${plan.severity}
-- Layer: ${plan.layer}
-
-RETURN JSON ONLY:
-{
-  "root_cause": "",
-  "fix": "",
-  "steps": "",
-  "confidence": 0.0,
-  "improvement_note": "",
-  "applied_patterns": [""],
-  "component_tags": [""]
+  "improvement_note": ""
 }`;
 }
 
@@ -305,7 +261,6 @@ export default async function handler(req, res) {
     const category = String(plan?.category || "UNKNOWN").toUpperCase();
     const plannerKeywords = Array.isArray(plan?.keywords) ? plan.keywords : [];
     const searchQuery = plannerKeywords.length ? plannerKeywords.join(" ") : conciseError;
-
     let memories = [];
     try {
       memories = await cachedSearch(searchQuery, team_id);
@@ -319,41 +274,53 @@ export default async function handler(req, res) {
     const stableInfra = hasStableInfraSignals(conciseError);
     const cacheDominant = issueSignals.has("cache") && (stableInfra || !issueSignals.has("redis"));
 
-    // Filter for HIGH QUALITY memories only (score > 0.8), then keep only relevant top 2.
-    const highQualityMemories = (Array.isArray(memories) ? memories : [])
-      .filter((m) => (m?.metadata?.score || 0) > 0.8)
-      .map((m) => ({
-        memory: m,
-        relevance: memoryRelevance(conciseError, m),
-      }))
-      .filter((entry) => isMemoryRelevant(entry.memory, conciseError, issueSignals, stableInfra))
-      .filter((entry) => entry.relevance >= 0.35)
-      .sort((a, b) => {
-        if (b.relevance !== a.relevance) return b.relevance - a.relevance;
-        return Number(b?.memory?.metadata?.score || 0) - Number(a?.memory?.metadata?.score || 0);
-      });
-
-    let filteredMemories = pickDiverseMemories(highQualityMemories, 2);
-    let mode = filteredMemories.length === 0 ? "reasoning_only" : "memory_guided";
+    const selected = selectMemories(conciseError, memories);
+    let filteredMemories = selected.filtered;
+    let mode = selected.mode;
 
     if (cacheDominant || stableInfra) {
       filteredMemories = [];
       mode = "reasoning_only";
     }
 
-    const basePrompt = buildBasePrompt(conciseError);
-    const improvedPrompt = mode === "reasoning_only"
-      ? buildReasoningOnlyPrompt(conciseError, plan)
-      : buildFinalPrompt(conciseError, plan, filteredMemories);
+    const usedKeys = new Set(filteredMemories.map(memoryKey));
+
+    const scoredMemories = (Array.isArray(selected.scored) ? selected.scored : []).map((memory) => ({
+      ...memory,
+      reason: mode === "reasoning_only"
+        ? (cacheDominant || stableInfra ? "domain_guard" : (memory.relevance < 0.35 ? "low_relevance" : "not_selected"))
+        : (memory.relevance < 0.35 ? "low_relevance" : (!domainMatch(conciseError, memory) ? "domain_mismatch" : (usedKeys.has(memoryKey(memory)) ? "used" : "not_selected"))),
+    }));
+
+    const trace = {
+      mode,
+      considered: scoredMemories.map((memory) => ({
+        summary: String(memory?.content || memory?.metadata?.error_summary || "").slice(0, 80),
+        relevance: Number(memory?.relevance?.toFixed?.(2) || Number(memory?.relevance || 0).toFixed(2)),
+      })),
+      used: filteredMemories.map((memory) => ({
+        summary: String(memory?.content || memory?.metadata?.error_summary || "").slice(0, 80),
+        relevance: Number(memory?.relevance?.toFixed?.(2) || Number(memory?.relevance || 0).toFixed(2)),
+      })),
+      rejected: scoredMemories
+        .filter((memory) => !usedKeys.has(memoryKey(memory)))
+        .map((memory) => ({
+          summary: String(memory?.content || memory?.metadata?.error_summary || "").slice(0, 80),
+          reason: memory.reason,
+          relevance: Number(memory?.relevance?.toFixed?.(2) || Number(memory?.relevance || 0).toFixed(2)),
+        })),
+    };
 
     let base;
     let improved;
 
     try {
-      [base, improved] = await Promise.all([
-        callLLM(basePrompt),
-        callLLM(improvedPrompt),
-      ]);
+      // Always compute baseline reasoning first, then optionally apply memory-guided improvement.
+      const basePrompt = buildBasePrompt(conciseError);
+      base = await callLLM(basePrompt);
+
+      const improvedPrompt = buildPrompt(conciseError, plan, filteredMemories, mode);
+      improved = await callLLM(improvedPrompt);
       console.log("LLM ANALYSIS:", { base, improved, memory_hits: filteredMemories.length });
     } catch (e) {
       console.error("LLM ERROR:", e);
@@ -463,6 +430,7 @@ export default async function handler(req, res) {
       memory_entries: Array.isArray(memories) ? memories.length : 0,
       improvement,
       mode,
+      trace,
       category: plan.category,
       severity: plan.severity,
       layer: plan.layer,
@@ -494,6 +462,12 @@ export default async function handler(req, res) {
       improvement: 0,
       category: "UNKNOWN",
       mode: "fallback",
+      trace: {
+        mode: "reasoning_only",
+        considered: [],
+        used: [],
+        rejected: [],
+      },
     });
   }
 }

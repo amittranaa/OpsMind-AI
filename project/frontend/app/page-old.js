@@ -216,7 +216,7 @@ export default function HomePage() {
           }}
         >
           <div style={styles.brandBlock}>
-            <img src="/opsmind-logo.svg" alt="OpsMind AI logo" style={styles.brandLogo} />
+            <img src="/6F1E559E-0C07-40B9-8C4C-C151F5B31A6A_1_201_a.jpeg?v=20260415" alt="OpsMind AI logo" style={styles.brandLogo} />
             <div>
               <div style={styles.logo}>OpsMind AI</div>
               <p style={styles.logoSub}>AI DevOps Command Center</p>
@@ -239,7 +239,7 @@ export default function HomePage() {
             }}
           >
             <div style={styles.topbarTitleRow}>
-              <img src="/opsmind-logo.svg" alt="OpsMind AI" style={styles.topbarLogo} />
+              <img src="/6F1E559E-0C07-40B9-8C4C-C151F5B31A6A_1_201_a.jpeg?v=20260415" alt="OpsMind AI" style={styles.topbarLogo} />
               <div>
                 <h1 style={styles.title}>Incident Intelligence</h1>
                 <p style={styles.topbarSub}>Incident workflow that learns across teams and deployments.</p>
