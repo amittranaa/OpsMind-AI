@@ -67,7 +67,7 @@ We implemented **Hindsight Memory** to:
 
 ## 🎥 Demo Video
 
-[Add YouTube / Drive link]
+https://drive.google.com/file/d/1lCjSAODiDnDYDS0UXmUzX12I_Hlb90bE/view?usp=sharing
 
 ---
 
