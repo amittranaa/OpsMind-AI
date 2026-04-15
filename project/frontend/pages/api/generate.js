@@ -259,7 +259,7 @@ export default async function handler(req, res) {
     console.log("PLAN:", plan);
 
     const plannerKeywords = Array.isArray(plan?.keywords) ? plan.keywords : [];
-    const searchQuery = plannerKeywords.length ? plannerKeywords.join(" ") : conciseError;
+    const searchQuery = [conciseError, ...plannerKeywords].filter(Boolean).join(" ");
     let memories = [];
     try {
       memories = await retrieveMemory(searchQuery, 5);
