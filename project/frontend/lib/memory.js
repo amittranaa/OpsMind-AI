@@ -132,7 +132,7 @@ ${incidentFix}`,
   });
 
   if (!response.ok) {
-    throw new Error(data?.error || data?.message || "Memory storage failed");
+    throw new Error(data?.error || data?.message || `Memory storage failed (${response.status})`);
   }
 
   clearMemoryCache();
@@ -179,7 +179,7 @@ export async function retrieveMemory(query, topK = 2) {
   });
 
   if (!response.ok) {
-    throw new Error(data?.error || data?.message || "Memory retrieval failed");
+    throw new Error(data?.error || data?.message || `Memory retrieval failed (${response.status})`);
   }
 
   return normalizeMemories(data);
