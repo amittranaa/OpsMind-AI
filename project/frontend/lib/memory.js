@@ -6,6 +6,9 @@ const API_KEY = process.env.HINDSIGHT_API_KEY;
 export const TEAM_ID = "opsmind-default";
 
 const memoryCache = {};
+let cachedMcpTools = null;
+let mcpInitialized = false;
+let rpcCounter = 0;
 
 function ensureApiKey() {
   if (!API_KEY) {
@@ -20,6 +23,146 @@ function authorizationHeaderValue() {
   }
 
   return /^bearer\s+/i.test(value) ? value : `Bearer ${value}`;
+}
+
+function normalizeMcpResult(result) {
+  if (!result) return result;
+
+  if (Array.isArray(result?.content)) {
+    for (const item of result.content) {
+      if (typeof item?.text === "string") {
+        try {
+          return JSON.parse(item.text);
+        } catch {
+          return item.text;
+        }
+      }
+    }
+  }
+
+  if (Array.isArray(result?.memories)) {
+    return result.memories;
+  }
+
+  if (Array.isArray(result)) {
+    return result;
+  }
+
+  return result;
+}
+
+async function mcpRequest(method, params = {}) {
+  ensureApiKey();
+
+  const response = await fetch(BASE_URL, {
+    method: "POST",
+    headers: {
+      "Authorization": authorizationHeaderValue(),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: ++rpcCounter,
+      method,
+      params,
+    }),
+  });
+
+  const responseText = await response.text();
+  let data;
+  try {
+    data = responseText ? JSON.parse(responseText) : {};
+  } catch {
+    data = { raw: responseText };
+  }
+
+  console.log(`Hindsight MCP ${method}:`, {
+    status: response.status,
+    ok: response.ok,
+    body: data,
+  });
+
+  if (!response.ok) {
+    throw new Error(data?.error || data?.message || `MCP request failed (${response.status})`);
+  }
+
+  if (data?.error) {
+    throw new Error(data.error?.message || data.error || `MCP ${method} error`);
+  }
+
+  return data.result ?? data;
+}
+
+async function ensureMcpInitialized() {
+  if (mcpInitialized) return;
+
+  try {
+    await mcpRequest("initialize", {
+      protocolVersion: "2024-11-05",
+      clientInfo: {
+        name: "OpsMind AI",
+        version: "1.0.0",
+      },
+      capabilities: {},
+    });
+  } catch (error) {
+    console.warn("Hindsight MCP initialize warning:", error.message);
+  } finally {
+    mcpInitialized = true;
+  }
+}
+
+async function listMcpTools() {
+  if (Array.isArray(cachedMcpTools)) {
+    return cachedMcpTools;
+  }
+
+  await ensureMcpInitialized();
+  const result = await mcpRequest("tools/list", {});
+  const tools = Array.isArray(result?.tools) ? result.tools : Array.isArray(result) ? result : [];
+  cachedMcpTools = tools;
+  return tools;
+}
+
+function pickTool(tools, mode) {
+  const entries = Array.isArray(tools) ? tools : [];
+  const scored = entries.map((tool) => {
+    const name = String(tool?.name || "").toLowerCase();
+    const description = String(tool?.description || "").toLowerCase();
+    const haystack = `${name} ${description}`;
+    let score = 0;
+
+    if (mode === "store") {
+      if (/store|save|write|create|insert/.test(haystack)) score += 3;
+      if (/memory/.test(haystack)) score += 2;
+      if (/incident|feedback|resolution/.test(haystack)) score += 1;
+    } else {
+      if (/search|retrieve|query|find|list|lookup/.test(haystack)) score += 3;
+      if (/memory/.test(haystack)) score += 2;
+      if (/incident|feedback|resolution/.test(haystack)) score += 1;
+    }
+
+    return { tool, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0]?.score > 0 ? scored[0].tool : null;
+}
+
+async function callMcpTool(mode, args) {
+  const tools = await listMcpTools();
+  const tool = pickTool(tools, mode);
+
+  if (!tool?.name) {
+    throw new Error(`No matching MCP ${mode} tool found`);
+  }
+
+  const result = await mcpRequest("tools/call", {
+    name: tool.name,
+    arguments: args,
+  });
+
+  return normalizeMcpResult(result);
 }
 
 function getText(value) {
@@ -154,30 +297,16 @@ ${incidentFix}`,
     },
   };
 
-  const result = await requestHindsight(["/memories", "/v1/memories"], {
-    method: "POST",
-    headers: {
-      "Authorization": authorizationHeaderValue(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
+  const result = await callMcpTool("store", {
+    team_id: TEAM_ID,
+    content: payload.content,
+    metadata: payload.metadata,
   });
-
-  console.log("Hindsight STORE response:", {
-    status: result?.status,
-    ok: result?.ok,
-    endpoint: result?.endpointPath,
-    body: result?.data,
-  });
-
-  if (!result?.ok) {
-    throw new Error(result?.data?.error || result?.data?.message || `Memory storage failed (${result?.status || "unknown"})`);
-  }
 
   clearMemoryCache();
 
   return {
-    ...(result?.data || {}),
+    ...(result || {}),
     stored_memory: {
       content: payload.content,
       metadata: payload.metadata,
@@ -190,31 +319,13 @@ ${incidentFix}`,
 export async function retrieveMemory(query, topK = 2) {
   ensureApiKey();
 
-  const result = await requestHindsight(["/memories/search", "/v1/memories/search"], {
-    method: "POST",
-    headers: {
-      "Authorization": authorizationHeaderValue(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      team_id: TEAM_ID,
-      query: String(query || ""),
-      top_k: topK,
-    }),
+  const result = await callMcpTool("search", {
+    team_id: TEAM_ID,
+    query: String(query || ""),
+    top_k: topK,
   });
 
-  console.log("Hindsight RETRIEVE:", {
-    status: result?.status,
-    ok: result?.ok,
-    endpoint: result?.endpointPath,
-    body: result?.data,
-  });
-
-  if (!result?.ok) {
-    throw new Error(result?.data?.error || result?.data?.message || `Memory retrieval failed (${result?.status || "unknown"})`);
-  }
-
-  return normalizeMemories(result?.data);
+  return normalizeMemories(result);
 }
 
 export async function searchMemories(query) {
