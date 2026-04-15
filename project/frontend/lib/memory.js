@@ -103,7 +103,11 @@ async function mcpRequest(method, params = {}) {
   const responseText = await response.text();
   let data;
   try {
-    data = responseText ? JSON.parse(responseText) : {};
+    const sseDataLine = responseText
+      .split(/\r?\n/)
+      .find((line) => line.startsWith("data: "));
+    const payloadText = sseDataLine ? sseDataLine.slice(6) : responseText;
+    data = payloadText ? JSON.parse(payloadText) : {};
   } catch {
     data = { raw: responseText };
   }
