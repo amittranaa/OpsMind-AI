@@ -1,131 +1,95 @@
-# OpsMind AI
+# OpsMind AI — Intelligent Incident Decision System
 
-Professional AI DevOps incident intelligence dashboard powered by a multi-agent workflow and Hindsight memory.
+## 🚀 Overview
 
-## Problem
+OpsMind AI is a memory-driven incident intelligence system that learns from past incidents and improves future decisions using Hindsight.
 
-Developers repeatedly solve the same incidents without learning from past fixes.
+Unlike traditional AI systems, OpsMind AI:
 
-## Solution
+* Uses memory only when relevant
+* Rejects irrelevant past incidents
+* Improves decision quality over time
 
-OpsMind AI learns from real incident outcomes:
+---
 
-- Planner classifies incident + extracts keywords
-- Retriever pulls relevant Hindsight memory
-- Executor generates a context-aware resolution
-- Feedback stores outcome and closes the learning loop
+## 🧠 Key Innovation
 
-## Tech Stack
+We implemented **Hindsight Memory** to:
 
-- Vercel frontend + API routes
-- Hindsight Cloud memory layer
-- Groq LLM for generation and scoring
+* Store past incident patterns
+* Retrieve relevant memories
+* Improve AI-generated solutions
+* Reject memory when not applicable
 
-## Real Product Upgrades
+---
 
-- Team-isolated memory via team_id metadata and team-scoped retrieval filters
-- Lightweight auth headers (x-team-id, x-user-id) on every generate/feedback/bootstrap call
-- In-memory rate limiting on API routes to prevent burst abuse
-- Robust fallback responses so incident workflows never hard-fail
-- Bootstrap endpoint for guaranteed baseline memory on first deployment
+## ⚙️ Features
 
-## Multi-Agent Flow
+* Incident Analysis Engine
+* Memory Retrieval & Filtering
+* Before vs After Comparison
+* Confidence Scoring
+* Continuous Learning System
 
-User Input
--> Planner (classify + keywords)
--> Retriever (search memory)
--> Executor (generate fix)
--> Feedback (store in Hindsight)
+---
 
-## Key Feature
+## 🧪 Example Workflow
 
-Feedback-driven learning loop with visible before/after improvement.
+1. User submits incident
+2. AI generates base analysis
+3. Hindsight retrieves past memory
+4. System evaluates relevance
+5. Final improved decision is generated
 
-## How Hindsight Is Used
+---
 
-- Stores incidents
-- Retrieves relevant memory
-- Influences the next decision
+## 🧰 Tech Stack
 
-## Production Deployment
+* Frontend: Next.js, Tailwind
+* Backend: Node.js, Express
+* AI: Groq / OpenAI-compatible models
+* Memory: Hindsight Cloud
+* Deployment: Vercel
 
-Service URL: add here
+---
 
-## Operations Runbook
+## 🌐 Live Demo
 
-### Executive Summary
+[https://frontend-eta-three-94.vercel.app](https://frontend-eta-three-94.vercel.app)
 
-Developers repeatedly solve the same incidents without learning from past fixes.
-We built OpsMind AI, a system that uses Hindsight memory to store incidents and improve future decisions.
-Our system uses a multi-agent architecture to analyze issues, retrieve relevant memory, and generate better fixes.
-The system improves incident response quality using past incidents.
-This transforms debugging from reactive to intelligent and continuously improving.
+---
 
-### 3 Key Lines
+## 📸 Product Screenshot
 
-- This is not a chatbot. It is a learning system.
-- Memory directly improves decisions.
-- We built a feedback-driven intelligence loop.
+![OpsMind AI Dashboard](docs/assets/opsmind-dashboard.png)
 
-### Step-by-Step Validation
+---
 
-Step 1 (Bootstrap)
+## 🎥 Demo Video
 
-This system helps developers resolve incidents using past memory.
+[Add YouTube / Drive link]
 
-Input:
+---
 
-Redis timeout error
+## 🧠 Hindsight Memory Usage
 
-Output:
+* Stores past incidents
+* Retrieves relevant patterns
+* Improves fix recommendations
+* Rejects irrelevant memory (key innovation)
 
-Generic fix
+---
 
-Step 2 (Feedback)
+## 📌 Problem Solved
 
-Click:
+Reduces repeated incidents and improves decision-making in production systems.
 
-✅ Worked
+---
 
-Say:
+## 🏆 Hackathon Submission
 
-We store this successful fix in Hindsight memory.
+This project demonstrates:
 
-Step 3 (Learning Proof)
-
-Input:
-
-Redis connection delay
-
-Output:
-
-Improved fix using memory
-
-Say:
-
-Now the system retrieves similar past incidents and improves its decision.
-
-Step 4 (Outcome)
-
-This is not a chatbot. It’s a system that learns from outcomes and improves over time.
-
-## Final Checklist
-
-- Dashboard UI clean
-- Before vs After visible
-- Memory panel visible
-- Insights working
-- Multi-agent flow working
-- Incident workflow smooth
-
-## Production Validation Flow
-
-1. Bootstrap memory:
-   POST /api/bootstrap with x-team-id: opsmind-default and x-user-id: platform-bootstrap
-2. Generate incident fix:
-   POST /api/generate with same headers and error "Redis timeout on checkout service"
-3. Confirm learning signal:
-   Response includes memory_used > 0 and used_memories entries
-4. Submit feedback:
-   POST /api/feedback with same headers and outcome success
-
+* Real-world AI application
+* Memory-driven intelligence
+* Production-grade UI/UX
