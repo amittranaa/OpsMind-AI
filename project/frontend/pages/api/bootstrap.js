@@ -1,4 +1,4 @@
-import { storeMemory } from "../../lib/memory";
+import { storeMemory, TEAM_ID } from "../../lib/memory";
 import { rateLimit } from "../../lib/rate-limit";
 
 export default async function handler(req, res) {
@@ -11,7 +11,7 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: "Too many requests" });
   }
 
-  const team_id = req.headers["x-team-id"] || process.env.DEFAULT_TEAM_ID || "opsmind-default";
+  const team_id = TEAM_ID;
   const user_id = req.headers["x-user-id"] || process.env.DEFAULT_USER_ID || "platform-bootstrap";
 
   const samples = [

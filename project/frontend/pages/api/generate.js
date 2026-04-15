@@ -1,7 +1,7 @@
-import { cachedSearch } from "../../lib/memory";
+import { decideMemoryUsage, retrieveMemory, TEAM_ID } from "../../lib/memory";
 import { callLLM } from "../../lib/llm";
 import { rateLimit } from "../../lib/rate-limit";
-import { domainMatch, selectMemories } from "../../lib/relevance";
+import { computeRelevance } from "../../lib/relevance";
 
 function shortenForPrompt(text, maxChars = 1400) {
   const value = String(text || "").trim();
@@ -245,7 +245,7 @@ export default async function handler(req, res) {
 
   try {
     const { error } = req.body;
-    const team_id = req.headers["x-team-id"] || process.env.DEFAULT_TEAM_ID || "opsmind-default";
+    const team_id = TEAM_ID;
     const user_id = req.headers["x-user-id"] || process.env.DEFAULT_USER_ID || "ops-user";
 
     console.log("REQ BODY:", req.body);
@@ -258,12 +258,11 @@ export default async function handler(req, res) {
     const plan = await planner(conciseError);
     console.log("PLAN:", plan);
 
-    const category = String(plan?.category || "UNKNOWN").toUpperCase();
     const plannerKeywords = Array.isArray(plan?.keywords) ? plan.keywords : [];
     const searchQuery = plannerKeywords.length ? plannerKeywords.join(" ") : conciseError;
     let memories = [];
     try {
-      memories = await cachedSearch(searchQuery, team_id);
+      memories = await retrieveMemory(searchQuery, 5);
       console.log("MEMORIES RETRIEVED:", memories?.length);
     } catch (e) {
       console.error("HINDSIGHT ERROR:", e);
@@ -274,9 +273,10 @@ export default async function handler(req, res) {
     const stableInfra = hasStableInfraSignals(conciseError);
     const cacheDominant = issueSignals.has("cache") && (stableInfra || !issueSignals.has("redis"));
 
-    const selected = selectMemories(conciseError, memories);
-    let filteredMemories = selected.filtered;
-    let mode = selected.mode;
+    const decision = decideMemoryUsage(memories, conciseError);
+    let filteredMemories = decision.useMemory ? decision.memories : [];
+    let mode = decision.useMemory ? "memory+reasoning" : "reasoning_only";
+    const reasoning_mode = decision.useMemory ? "memory+reasoning" : "reasoning-only";
 
     if (cacheDominant || stableInfra) {
       filteredMemories = [];
@@ -285,11 +285,12 @@ export default async function handler(req, res) {
 
     const usedKeys = new Set(filteredMemories.map(memoryKey));
 
-    const scoredMemories = (Array.isArray(selected.scored) ? selected.scored : []).map((memory) => ({
+    const scoredMemories = (Array.isArray(memories) ? memories : []).map((memory) => ({
       ...memory,
+      relevance: computeRelevance(conciseError, memory),
       reason: mode === "reasoning_only"
-        ? (cacheDominant || stableInfra ? "domain_guard" : (memory.relevance < 0.35 ? "low_relevance" : "not_selected"))
-        : (memory.relevance < 0.35 ? "low_relevance" : (!domainMatch(conciseError, memory) ? "domain_mismatch" : (usedKeys.has(memoryKey(memory)) ? "used" : "not_selected"))),
+        ? (cacheDominant || stableInfra ? "domain_guard" : decision.reason)
+        : (usedKeys.has(memoryKey(memory)) ? "used" : "not_selected"),
     }));
 
     const trace = {
@@ -431,6 +432,7 @@ export default async function handler(req, res) {
       improvement,
       mode,
       trace,
+      reasoning_mode,
       category: plan.category,
       severity: plan.severity,
       layer: plan.layer,

@@ -5,6 +5,8 @@ import ReasoningTrace from "../components/ReasoningTrace";
 
 const MOBILE_TABS = ["dashboard", "analyze", "memory", "insights"];
 const DESKTOP_TABS = ["dashboard", "incidents", "insights", "memory"];
+const TEAM_ID = "opsmind-default";
+const USER_ID = "ops-user";
 const DESKTOP_TAB_META = {
   dashboard: {
     label: "Dashboard",
@@ -126,6 +128,9 @@ export default function HomePage() {
   const [analysisMode, setAnalysisMode] = useState("memory_guided");
   const [apiHealthStatus, setApiHealthStatus] = useState("down");
   const [apiLatencyMs, setApiLatencyMs] = useState(null);
+  const [lastInput, setLastInput] = useState("");
+  const [lastRootCause, setLastRootCause] = useState("");
+  const [lastFix, setLastFix] = useState("");
 
   const memoryTop3 = useMemo(() => dedupeMemories(usedMemories).slice(0, 3), [usedMemories]);
   const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
@@ -276,8 +281,8 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-team-id": "opsmind-default",
-          "x-user-id": "ops-user",
+          "x-team-id": TEAM_ID,
+          "x-user-id": USER_ID,
         },
         body: JSON.stringify({ error: incidentText }),
       });
@@ -299,6 +304,9 @@ export default function HomePage() {
       setImprovementScore(Number(data?.improvement || 0));
       const resolvedMode = String(data?.mode || (resolvedMemories.length === 0 ? "reasoning_only" : "memory_guided"));
       setAnalysisMode(resolvedMode);
+      setLastInput(incidentText);
+      setLastRootCause(normalizeRoot(data?.improved || data?.base));
+      setLastFix(normalizeFix(data?.improved || data?.base));
 
       const outcome = Number(data?.improved?.confidence || 0) >= 0.7 ? "Resolved" : "Failed";
       setIncidents((prev) => [{ summary: incidentText.slice(0, 56), status: outcome }, ...prev].slice(0, 8));
@@ -331,8 +339,8 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-team-id": "opsmind-default",
-          "x-user-id": "ops-user",
+          "x-team-id": TEAM_ID,
+          "x-user-id": USER_ID,
         },
       });
       if (!response.ok) throw new Error("Bootstrap failed");
@@ -349,8 +357,8 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-team-id": "opsmind-default",
-          "x-user-id": "ops-user",
+          "x-team-id": TEAM_ID,
+          "x-user-id": USER_ID,
         },
         body: JSON.stringify({ bootstrap: true }),
       });
@@ -361,6 +369,76 @@ export default function HomePage() {
       setCommandStatus(`Judge scorecard completed: ${score}%`);
     } catch (_err) {
       setCommandStatus("Judge scorecard failed");
+    }
+  }
+
+  async function refreshMemoryPanel(queryText) {
+    const query = String(queryText || lastInput || "").trim();
+    if (!query) return;
+
+    try {
+      const response = await fetch(`/api/memory/search?q=${encodeURIComponent(query)}`, {
+        method: "GET",
+        headers: {
+          "x-team-id": TEAM_ID,
+        },
+      });
+
+      const data = await response.json();
+      const memories = Array.isArray(data?.memories) ? data.memories : [];
+      if (memories.length > 0) {
+        setUsedMemories((prev) => dedupeMemories([...memories, ...prev]).slice(0, 12));
+      }
+    } catch (error) {
+      console.error("Memory panel refresh failed:", error);
+      setCommandStatus("Memory refresh failed");
+    }
+  }
+
+  async function sendFeedback(outcome) {
+    if (!lastInput || !lastFix) {
+      setCommandStatus("Analyze an incident before sending feedback");
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-team-id": TEAM_ID,
+          "x-user-id": USER_ID,
+        },
+        body: JSON.stringify({
+          input: lastInput,
+          error: lastInput,
+          rootCause: lastRootCause,
+          fix: {
+            fix: lastFix,
+            root_cause: lastRootCause,
+          },
+          tags: ["incident"],
+          outcome,
+        }),
+      });
+
+      const data = await response.json();
+      console.log("Feedback API response:", data);
+
+      if (!response.ok) {
+        setCommandStatus("Memory save failed");
+        return;
+      }
+
+      if (data?.status === "stored") {
+        setCommandStatus("Memory saved");
+        await refreshMemoryPanel(lastInput);
+      } else {
+        setCommandStatus(data?.reason || "Memory not stored");
+      }
+    } catch (error) {
+      console.error("Feedback submit failed:", error);
+      setCommandStatus("Memory save failed");
     }
   }
 
@@ -606,7 +684,8 @@ export default function HomePage() {
                     <span className="rounded-full border border-green-500/40 bg-green-500/15 px-3 py-1 text-xs text-green-300">+{improvement || 20}% better using memory</span>
                   </div>
 
-                  <p className="mb-4 text-xs text-indigo-300">Learned from {memoryCount} past incidents</p>
+                  <p className="mb-1 text-xs text-indigo-300">Learned from {memoryCount} past incidents</p>
+                  <p className="mb-4 text-xs text-cyan-300">🧠 Memory Used: {memoryCount}</p>
 
                   <div className="mb-5 grid grid-cols-3 gap-2 text-xs text-slate-300">
                     {analysisFlow.map((item) => (
@@ -656,6 +735,20 @@ export default function HomePage() {
                           ))}
                         </div>
                       )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => void sendFeedback("worked")}
+                          className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/25"
+                        >
+                          ✅ Worked
+                        </button>
+                        <button
+                          onClick={() => void sendFeedback("failed")}
+                          className="rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
+                        >
+                          ⚠ Not Resolved
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -868,7 +961,24 @@ export default function HomePage() {
                     ))}
                   </div>
                 )}
-                <p className="mt-2 text-xs text-purple-200">Memory used: {memoryCount}</p>
+                <p className="mt-2 text-xs text-cyan-200">🧠 Memory Used: {memoryCount}</p>
+                <p className="mt-1 text-xs text-slate-300">
+                  🧠 Memory Decision: {analysisMode === "reasoning_only" ? `Rejected (${reasoningTrace?.rejected?.[0]?.reason || "no relevant memory"})` : "Used"}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => void sendFeedback("resolved")}
+                    className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200"
+                  >
+                    ✅ Resolved
+                  </button>
+                  <button
+                    onClick={() => void sendFeedback("failed")}
+                    className="rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200"
+                  >
+                    ⚠ Not Resolved
+                  </button>
+                </div>
               </div>
             </div>
           </section>
