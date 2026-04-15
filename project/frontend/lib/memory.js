@@ -179,6 +179,10 @@ async function callMcpToolByName(name, args) {
   return normalizeMcpResult(result);
 }
 
+export async function debugCallMcpToolByName(name, args) {
+  return await callMcpToolByName(name, args);
+}
+
 function getText(value) {
   return String(value || "").toLowerCase();
 }
