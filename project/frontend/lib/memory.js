@@ -1,4 +1,4 @@
-const BASE_URL = process.env.HINDSIGHT_BASE_URL || "https://api.hindsight.vectorize.io";
+const BASE_URL = "https://api.hindsight.vectorize.io";
 const API_KEY = process.env.HINDSIGHT_API_KEY;
 export const TEAM_ID = "opsmind-default";
 
