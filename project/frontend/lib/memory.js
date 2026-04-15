@@ -22,6 +22,40 @@ function normalizeMemories(data) {
   return [];
 }
 
+async function requestHindsight(paths, init) {
+  let lastError = null;
+
+  for (const endpointPath of paths) {
+    const response = await fetch(`${BASE_URL}${endpointPath}`, init);
+    const responseText = await response.text();
+
+    let data;
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      data = { raw: responseText };
+    }
+
+    lastError = {
+      status: response.status,
+      ok: response.ok,
+      endpointPath,
+      data,
+    };
+
+    if (response.ok) {
+      return lastError;
+    }
+
+    // Keep probing on 404 because deployments can expose different API versions.
+    if (response.status !== 404) {
+      break;
+    }
+  }
+
+  return lastError;
+}
+
 function clearMemoryCache() {
   Object.keys(memoryCache).forEach((key) => delete memoryCache[key]);
 }
@@ -108,7 +142,7 @@ ${incidentFix}`,
     },
   };
 
-  const response = await fetch(`${BASE_URL}/memories`, {
+  const result = await requestHindsight(["/memories", "/v1/memories"], {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`,
@@ -117,28 +151,21 @@ ${incidentFix}`,
     body: JSON.stringify(payload),
   });
 
-  const responseText = await response.text();
-  let data;
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    data = { raw: responseText };
-  }
-
   console.log("Hindsight STORE response:", {
-    status: response.status,
-    ok: response.ok,
-    body: data,
+    status: result?.status,
+    ok: result?.ok,
+    endpoint: result?.endpointPath,
+    body: result?.data,
   });
 
-  if (!response.ok) {
-    throw new Error(data?.error || data?.message || `Memory storage failed (${response.status})`);
+  if (!result?.ok) {
+    throw new Error(result?.data?.error || result?.data?.message || `Memory storage failed (${result?.status || "unknown"})`);
   }
 
   clearMemoryCache();
 
   return {
-    ...data,
+    ...(result?.data || {}),
     stored_memory: {
       content: payload.content,
       metadata: payload.metadata,
@@ -151,7 +178,7 @@ ${incidentFix}`,
 export async function retrieveMemory(query, topK = 2) {
   ensureApiKey();
 
-  const response = await fetch(`${BASE_URL}/memories/search`, {
+  const result = await requestHindsight(["/memories/search", "/v1/memories/search"], {
     method: "POST",
     headers: {
       "Authorization": `Bearer ${API_KEY}`,
@@ -164,25 +191,18 @@ export async function retrieveMemory(query, topK = 2) {
     }),
   });
 
-  const responseText = await response.text();
-  let data;
-  try {
-    data = responseText ? JSON.parse(responseText) : {};
-  } catch {
-    data = { raw: responseText };
-  }
-
   console.log("Hindsight RETRIEVE:", {
-    status: response.status,
-    ok: response.ok,
-    body: data,
+    status: result?.status,
+    ok: result?.ok,
+    endpoint: result?.endpointPath,
+    body: result?.data,
   });
 
-  if (!response.ok) {
-    throw new Error(data?.error || data?.message || `Memory retrieval failed (${response.status})`);
+  if (!result?.ok) {
+    throw new Error(result?.data?.error || result?.data?.message || `Memory retrieval failed (${result?.status || "unknown"})`);
   }
 
-  return normalizeMemories(data);
+  return normalizeMemories(result?.data);
 }
 
 export async function searchMemories(query) {
