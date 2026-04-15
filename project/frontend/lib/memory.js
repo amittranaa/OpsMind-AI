@@ -112,7 +112,7 @@ async function ensureMcpInitialized() {
   }
 }
 
-async function listMcpTools() {
+export async function listMcpTools() {
   if (Array.isArray(cachedMcpTools)) {
     return cachedMcpTools;
   }
