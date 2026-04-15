@@ -445,6 +445,7 @@ export default async function handler(req, res) {
   } catch (err) {
     console.error("GENERATE ERROR:", err);
     res.status(200).json({
+      error: String(err?.message || err || "unknown_error"),
       base: {
         root_cause: "System fallback",
         fix: "Check logs and restart service",
