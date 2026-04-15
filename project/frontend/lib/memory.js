@@ -1,4 +1,7 @@
-const BASE_URL = "https://api.hindsight.vectorize.io";
+const BASE_URL =
+  String(process.env.HINDSIGHT_MCP_URL || "").trim() ||
+  String(process.env.HINDSIGHT_BASE_URL || "").trim() ||
+  "https://api.hindsight.vectorize.io/mcp/Incident_Intelligence";
 const API_KEY = process.env.HINDSIGHT_API_KEY;
 export const TEAM_ID = "opsmind-default";
 
@@ -8,6 +11,15 @@ function ensureApiKey() {
   if (!API_KEY) {
     throw new Error("HINDSIGHT_API_KEY is not configured");
   }
+}
+
+function authorizationHeaderValue() {
+  const value = String(API_KEY || "").trim();
+  if (!value) {
+    return "";
+  }
+
+  return /^bearer\s+/i.test(value) ? value : `Bearer ${value}`;
 }
 
 function getText(value) {
@@ -145,7 +157,7 @@ ${incidentFix}`,
   const result = await requestHindsight(["/memories", "/v1/memories"], {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${API_KEY}`,
+      "Authorization": authorizationHeaderValue(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload),
@@ -181,7 +193,7 @@ export async function retrieveMemory(query, topK = 2) {
   const result = await requestHindsight(["/memories/search", "/v1/memories/search"], {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${API_KEY}`,
+      "Authorization": authorizationHeaderValue(),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
