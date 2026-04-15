@@ -44,6 +44,14 @@ function normalizeMcpResult(result) {
     return result.memories;
   }
 
+  if (Array.isArray(result?.items)) {
+    return result.items;
+  }
+
+  if (Array.isArray(result?.structuredContent?.items)) {
+    return result.structuredContent.items;
+  }
+
   if (Array.isArray(result)) {
     return result;
   }
@@ -189,6 +197,8 @@ function getText(value) {
 
 function normalizeMemories(data) {
   if (Array.isArray(data?.memories)) return data.memories;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.structuredContent?.items)) return data.structuredContent.items;
   if (Array.isArray(data?.results)) return data.results;
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data)) return data;
