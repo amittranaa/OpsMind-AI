@@ -1,4 +1,4 @@
-import { listMcpTools } from "../../lib/memory";
+import { debugMcpTools } from "../../lib/memory";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -6,7 +6,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const tools = await listMcpTools();
+    const tools = await debugMcpTools();
     return res.status(200).json({ tools });
   } catch (error) {
     return res.status(500).json({ error: error.message });

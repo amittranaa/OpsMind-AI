@@ -93,6 +93,11 @@ async function mcpRequest(method, params = {}) {
   return data.result ?? data;
 }
 
+export async function debugMcpTools() {
+  await ensureMcpInitialized();
+  return await mcpRequest("tools/list", {});
+}
+
 async function ensureMcpInitialized() {
   if (mcpInitialized) return;
 
