@@ -97,7 +97,7 @@ The analysis follows this structure:
 
 ## 🚀 Live Application
 
-**Production URL**: https://frontend-4zlmq7g8t-amit-rana-s-projects.vercel.app
+**Production URL**: https://frontend-eta-three-94.vercel.app
 
 ### Features Available:
 ✅ Senior DevOps analysis on every incident
