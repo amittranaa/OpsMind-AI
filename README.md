@@ -3,8 +3,6 @@
 
 ## 🚀 Overview
 
-🧠 SHORT INTRO
-
 * OpsMind is a decision-first incident intelligence system that analyzes production issues, determines whether past incidents are relevant, and selectively applies memory to improve resolution accuracy.
 
 * Unlike traditional AI tools, it enforces strict validation, avoids unsafe memory reuse, and adapts reasoning based on signal strength, scope, and uncertainty—enabling faster, more reliable debugging in real-world systems.
