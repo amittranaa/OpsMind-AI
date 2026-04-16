@@ -1,4 +1,4 @@
-# OpsMind — OpsMind Ai — Memory-Augmented Incident Decision Engine
+# OpsMind Ai — Memory-Augmented Incident Decision Engine
 * Note that this tool is currently in development, so it may become even more advanced. Based on this information, the readme file may differ and expand on these features.
 
 ## 🚀 Overview
