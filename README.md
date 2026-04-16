@@ -1,15 +1,13 @@
-# OpsMind AI — Intelligent Incident Decision System
+# OpsMind — OpsMind Ai — Memory-Augmented Incident Decision Engine
 * Note that this tool is currently in development, so it may become even more advanced. Based on this information, the readme file may differ and expand on these features.
 
 ## 🚀 Overview
 
-OpsMind AI is a memory-driven incident intelligence system that learns from past incidents and improves future decisions using Hindsight.
+🧠 SHORT INTRO
 
-Unlike traditional AI systems, OpsMind AI:
+* OpsMind is a decision-first incident intelligence system that analyzes production issues, determines whether past incidents are relevant, and selectively applies memory to improve resolution accuracy.
 
-* Uses memory only when relevant
-* Rejects irrelevant past incidents
-* Improves decision quality over time
+* Unlike traditional AI tools, it enforces strict validation, avoids unsafe memory reuse, and adapts reasoning based on signal strength, scope, and uncertainty—enabling faster, more reliable debugging in real-world systems.
 
 ---
 
