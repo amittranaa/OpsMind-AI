@@ -50,7 +50,7 @@ We implemented **Hindsight Memory** to:
 
 ---
 
-## 🌐 Live Demo
+## 🌐 Live Demo (NEW UI/UX)
 
 [https://frontend-eta-three-94.vercel.app](https://frontend-eta-three-94.vercel.app)
 
@@ -62,7 +62,7 @@ We implemented **Hindsight Memory** to:
 
 ---
 
-## 🎥 Demo Video
+## 🎥 Demo Video (OLD UI/UX)
 
 https://drive.google.com/file/d/1lCjSAODiDnDYDS0UXmUzX12I_Hlb90bE/view?usp=sharing
 
