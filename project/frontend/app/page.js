@@ -2,29 +2,53 @@
 
 import { useEffect, useMemo, useState } from "react";
 import ReasoningTrace from "../components/ReasoningTrace";
+import DecisionTrace from "../components/DecisionTrace";
+import MemoryPanel from "../components/MemoryPanel";
+import { mapMemories } from "../engine/decisionEngine";
 
-const MOBILE_TABS = ["dashboard", "analyze", "memory", "insights"];
-const DESKTOP_TABS = ["dashboard", "incidents", "insights", "memory"];
+const MOBILE_TABS = ["overview", "analyze", "memory", "insights"];
 const TEAM_ID = "opsmind-default";
 const USER_ID = "ops-user";
-const DESKTOP_TAB_META = {
-  dashboard: {
-    label: "Dashboard",
-    description: "Command center for live analysis, incident intake, and response quality.",
-  },
-  incidents: {
-    label: "Incidents",
-    description: "Focused intake view for triage, recent cases, and quick re-analysis.",
-  },
-  insights: {
-    label: "Insights",
-    description: "Operational patterns, trend signals, and the latest analysis snapshot.",
-  },
-  memory: {
-    label: "Memory",
-    description: "Top retrieved memories with scoring and relevance context.",
-  },
+
+const BTN = {
+  primary: "ops-btn ops-btn-primary",
+  secondary: "ops-btn ops-btn-secondary",
+  success: "ops-btn ops-btn-success",
+  danger: "ops-btn ops-btn-danger",
 };
+
+const SERVICE_PILLARS = [
+  {
+    title: "Executive Incident Framing",
+    detail: "Convert noisy symptoms into ranked root-cause hypotheses with clear decision context.",
+  },
+  {
+    title: "Evidence-Gated Memory Reuse",
+    detail: "Historical incidents only influence remediation when match quality and risk checks pass.",
+  },
+  {
+    title: "Operational Safety Controls",
+    detail: "Weak memory confidence automatically triggers deterministic reasoning-first recommendations.",
+  },
+  {
+    title: "Governed Learning Loop",
+    detail: "Outcome feedback updates memory quality over time with explicit controls and traceability.",
+  },
+];
+
+const TRUST_SIGNALS = [
+  "Board-ready reliability under production pressure",
+  "Transparent recommendation rationale for every decision",
+  "Strict validation gates before any memory reuse",
+  "Reasoning-first fallback when signal quality drops",
+];
+
+const AGENCY_OPERATING_MODEL = [
+  "Capture context with constraints and blast radius",
+  "Score memory quality against current system state",
+  "Produce baseline and final recommendation with traceability",
+  "Close the loop using worked/failed outcome feedback",
+];
 
 function normalizeFix(result) {
   if (!result) return "No response yet.";
@@ -51,21 +75,13 @@ function normalizeRoot(result) {
 function normalizePatterns(result) {
   if (!result || typeof result === "string") return [];
   if (!Array.isArray(result.applied_patterns)) return [];
-  return result.applied_patterns.filter((item) => typeof item === "string" && item.trim()).slice(0, 3);
+  return result.applied_patterns.filter((item) => typeof item === "string" && item.trim()).slice(0, 4);
 }
 
 function normalizeTags(result) {
   if (!result || typeof result === "string") return [];
   if (!Array.isArray(result.component_tags)) return [];
-  return result.component_tags.filter((item) => typeof item === "string" && item.trim()).slice(0, 4);
-}
-
-function getSummary(memory) {
-  if (memory?.metadata?.error_summary && memory?.metadata?.fix_summary) {
-    return `${memory.metadata.error_summary} -> ${memory.metadata.fix_summary}`;
-  }
-  if (memory?.metadata?.error_summary) return memory.metadata.error_summary;
-  return String(memory?.content || "").split("|")[0]?.trim() || "No summary";
+  return result.component_tags.filter((item) => typeof item === "string" && item.trim()).slice(0, 5);
 }
 
 function dedupeMemories(memories) {
@@ -73,7 +89,7 @@ function dedupeMemories(memories) {
   const deduped = [];
 
   for (const memory of Array.isArray(memories) ? memories : []) {
-    const key = String(memory?.metadata?.error_summary || memory?.content || "")
+    const key = String(memory?.id || memory?.title || memory?.summary || memory?.metadata?.error_summary || memory?.content || "")
       .toLowerCase()
       .replace(/\s+/g, " ")
       .trim();
@@ -86,44 +102,35 @@ function dedupeMemories(memories) {
   return deduped;
 }
 
-function score(memory) {
-  return Math.round((Number(memory?.metadata?.score || 0) || 0) * 100);
-}
-
-function relevance(memory) {
-  const s = score(memory);
-  return Math.max(55, Math.min(99, s + 4));
-}
-
 function healthBadge(status) {
   if (status === "live") {
-    return "border border-emerald-500/40 bg-emerald-500/15 text-emerald-300";
+    return "ops-health-live";
   }
   if (status === "slow") {
-    return "border border-amber-500/40 bg-amber-500/15 text-amber-300";
+    return "ops-health-slow";
   }
-  return "border border-rose-500/40 bg-rose-500/15 text-rose-300";
+  return "ops-health-down";
 }
 
 export default function HomePage() {
-  const [error, setError] = useState("");
+  const [theme, setTheme] = useState("light");
+  const [themeTransitioning, setThemeTransitioning] = useState(false);
+  const [incidentText, setIncidentText] = useState("");
   const [loading, setLoading] = useState(false);
+  const [refreshingMemory, setRefreshingMemory] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [step, setStep] = useState("");
   const [commandStatus, setCommandStatus] = useState("");
   const [base, setBase] = useState(null);
   const [improved, setImproved] = useState(null);
   const [usedMemories, setUsedMemories] = useState([]);
   const [reasoningTrace, setReasoningTrace] = useState(null);
+  const [decisionTrace, setDecisionTrace] = useState(null);
   const [incidents, setIncidents] = useState([
     { summary: "Redis timeout", status: "Resolved" },
     { summary: "API crash", status: "Failed" },
   ]);
   const [mobileTab, setMobileTab] = useState("analyze");
-  const [desktopTab, setDesktopTab] = useState("dashboard");
-  const [showPalette, setShowPalette] = useState(false);
-  const [commandInput, setCommandInput] = useState("");
-  const [touchStartX, setTouchStartX] = useState(null);
-  const [judgeScore, setJudgeScore] = useState(null);
   const [improvementScore, setImprovementScore] = useState(0);
   const [analysisMode, setAnalysisMode] = useState("memory_guided");
   const [apiHealthStatus, setApiHealthStatus] = useState("down");
@@ -131,50 +138,66 @@ export default function HomePage() {
   const [lastInput, setLastInput] = useState("");
   const [lastRootCause, setLastRootCause] = useState("");
   const [lastFix, setLastFix] = useState("");
+  const [memoryUsedCount, setMemoryUsedCount] = useState(0);
+  const [memoryRejectedReason, setMemoryRejectedReason] = useState("");
+  const [memoryMatchReason, setMemoryMatchReason] = useState("");
+  const [explicitPatterns, setExplicitPatterns] = useState([]);
+  const [analysisError, setAnalysisError] = useState("");
 
-  const memoryTop3 = useMemo(() => dedupeMemories(usedMemories).slice(0, 3), [usedMemories]);
-  const memoryCount = useMemo(() => usedMemories.length, [usedMemories]);
+  const memoryPanelData = useMemo(() => usedMemories, [usedMemories]);
+  const memoryCount = useMemo(() => Number(memoryUsedCount || 0), [memoryUsedCount]);
   const beforeConfidence = Number(base?.confidence || 0);
   const afterConfidence = Number(improved?.confidence || 0);
   const calculatedImprovement = Math.max(0, Math.round((afterConfidence - beforeConfidence) * 100));
-  const improvement = improvementScore > 0 ? improvementScore : calculatedImprovement;
-  const activeDesktopMeta = DESKTOP_TAB_META[desktopTab] || DESKTOP_TAB_META.dashboard;
-  const appliedPatterns = useMemo(() => normalizePatterns(improved), [improved]);
+  const improvement = memoryCount > 0 ? (improvementScore > 0 ? improvementScore : calculatedImprovement) : 0;
+
+  const appliedPatterns = useMemo(() => {
+    if (Array.isArray(explicitPatterns) && explicitPatterns.length > 0) {
+      return explicitPatterns;
+    }
+    return normalizePatterns(improved);
+  }, [explicitPatterns, improved]);
+
   const componentTags = useMemo(() => normalizeTags(improved), [improved]);
 
-  useEffect(() => {
-    function onKeyDown(event) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setShowPalette((prev) => !prev);
-      }
-      if (event.key === "Escape") {
-        setShowPalette(false);
-      }
-    }
+  const successRate = useMemo(() => {
+    if (!Array.isArray(incidents) || incidents.length === 0) return 0;
+    const resolved = incidents.filter((item) => String(item?.status || "").toLowerCase() === "resolved").length;
+    return Math.round((resolved / incidents.length) * 100);
+  }, [incidents]);
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  const avgConfidence = useMemo(() => {
+    const confidence = Math.round(afterConfidence * 100);
+    return Number.isFinite(confidence) ? confidence : 0;
+  }, [afterConfidence]);
 
-  useEffect(() => {
-    try {
-      const savedTab = window.localStorage.getItem("opsmind-desktop-tab");
-      if (savedTab && DESKTOP_TABS.includes(savedTab)) {
-        setDesktopTab(savedTab);
-      }
-    } catch {
-      // Ignore localStorage access issues in restricted contexts.
-    }
-  }, []);
+  const kpiCards = useMemo(
+    () => [
+      {
+        label: "Decision confidence",
+        value: `${avgConfidence}%`,
+        hint: avgConfidence >= 70 ? "Healthy quality threshold" : "Needs more evidence",
+      },
+      {
+        label: "Resolution rate",
+        value: `${successRate}%`,
+        hint: `${incidents.length} tracked incidents`,
+      },
+      {
+        label: "Memory applied",
+        value: `${memoryCount}`,
+        hint: memoryCount > 0 ? "Validated reuse active" : "Reasoning-only mode",
+      },
+      {
+        label: "Performance lift",
+        value: `${improvement}%`,
+        hint: improvement > 0 ? "Measured decision gain" : "No verified gain yet",
+      },
+    ],
+    [avgConfidence, incidents.length, improvement, memoryCount, successRate]
+  );
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("opsmind-desktop-tab", desktopTab);
-    } catch {
-      // Ignore localStorage write issues in restricted contexts.
-    }
-  }, [desktopTab]);
+  const hasResult = Boolean(base || improved);
 
   useEffect(() => {
     let active = true;
@@ -220,61 +243,82 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    // One-time cleanup to prevent stale PWA cache from serving older UI builds.
-    async function resetStalePWA() {
-      if (typeof window === "undefined" || !("serviceWorker" in navigator)) {
-        return;
-      }
-
-      const key = "opsmind-sw-reset-v2";
-      let alreadyDone = false;
-      try {
-        alreadyDone = window.localStorage.getItem(key) === "done";
-      } catch {
-        alreadyDone = false;
-      }
-
-      if (alreadyDone) {
-        return;
-      }
-
-      try {
-        const regs = await navigator.serviceWorker.getRegistrations();
-        await Promise.all(regs.map((reg) => reg.unregister()));
-
-        if (window.caches && typeof window.caches.keys === "function") {
-          const cacheNames = await window.caches.keys();
-          await Promise.all(cacheNames.map((name) => window.caches.delete(name)));
-        }
-      } catch {
-        // Ignore cleanup errors; app should still render with network assets.
-      } finally {
-        try {
-          window.localStorage.setItem(key, "done");
-        } catch {
-          // localStorage can be unavailable in privacy-restricted contexts.
-        }
-      }
-    }
-
-    void resetStalePWA();
-  }, []);
-
-  useEffect(() => {
     if (!commandStatus) return;
-    const timer = setTimeout(() => setCommandStatus(""), 2400);
+    const timer = setTimeout(() => setCommandStatus(""), 2500);
     return () => clearTimeout(timer);
   }, [commandStatus]);
 
+  useEffect(() => {
+    try {
+      const storedTheme = window.localStorage.getItem("opsmind-theme");
+      if (storedTheme === "light" || storedTheme === "dark") {
+        setTheme(storedTheme);
+        return;
+      }
+
+      const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      setTheme(prefersDark ? "dark" : "light");
+    } catch {
+      setTheme("light");
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (!root) return;
+
+    root.classList.toggle("theme-shifting", themeTransitioning);
+    root.classList.toggle("dark", theme === "dark");
+    try {
+      window.localStorage.setItem("opsmind-theme", theme);
+    } catch {
+      // Ignore persistence errors in restricted contexts.
+    }
+  }, [theme, themeTransitioning]);
+
+  useEffect(() => {
+    try {
+      const savedIncident = window.localStorage.getItem("opsmind-draft-incident");
+      if (savedIncident) {
+        setIncidentText(savedIncident);
+      }
+
+      const savedMobileTab = window.localStorage.getItem("opsmind-mobile-tab");
+      if (savedMobileTab && MOBILE_TABS.includes(savedMobileTab)) {
+        setMobileTab(savedMobileTab);
+      }
+    } catch {
+      // Ignore persistence errors in restricted contexts.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("opsmind-draft-incident", incidentText);
+      window.localStorage.setItem("opsmind-mobile-tab", mobileTab);
+    } catch {
+      // Ignore persistence errors in restricted contexts.
+    }
+  }, [incidentText, mobileTab]);
+
+  function toggleTheme() {
+    setThemeTransitioning(true);
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+    window.setTimeout(() => setThemeTransitioning(false), 240);
+  }
+
   async function analyzeIncident(incidentOverride = "") {
-    const incidentSeed = typeof incidentOverride === "string" ? incidentOverride : "";
-    const incidentText = String(incidentSeed || error).trim();
-    if (!incidentText || loading) return;
+    const provided = typeof incidentOverride === "string" ? incidentOverride : "";
+    const input = String(provided || incidentText).trim();
+    if (!input || loading) return;
 
     setLoading(true);
-    setStep("Analyzing...");
-    const t1 = setTimeout(() => setStep("Retrieving memory..."), 800);
-    const t2 = setTimeout(() => setStep("Generating improved fix..."), 1600);
+    setAnalysisError("");
+    setReasoningTrace(null);
+    setDecisionTrace(null);
+    setStep("Analyzing incident context");
+    const t1 = setTimeout(() => setStep("Retrieving and scoring memory"), 700);
+    const t2 = setTimeout(() => setStep("Generating remediation plan"), 1400);
 
     try {
       const response = await fetch("/api/generate", {
@@ -284,7 +328,7 @@ export default function HomePage() {
           "x-team-id": TEAM_ID,
           "x-user-id": USER_ID,
         },
-        body: JSON.stringify({ error: incidentText }),
+        body: JSON.stringify({ error: input }),
       });
 
       const data = await response.json();
@@ -292,38 +336,76 @@ export default function HomePage() {
         throw new Error(data?.error || "Analysis failed");
       }
 
-      setBase(data?.base || null);
-      setImproved(data?.improved || null);
-      const resolvedMemories = Array.isArray(data?.memories)
-        ? data.memories
-        : Array.isArray(data?.used_memories)
-          ? data.used_memories
-          : [];
-      setUsedMemories(resolvedMemories);
-      setReasoningTrace(data?.trace || null);
-      setImprovementScore(Number(data?.improvement || 0));
-      const resolvedMode = String(data?.mode || (resolvedMemories.length === 0 ? "reasoning_only" : "memory_guided"));
-      setAnalysisMode(resolvedMode);
-      setLastInput(incidentText);
-      setLastRootCause(normalizeRoot(data?.improved || data?.base));
-      setLastFix(normalizeFix(data?.improved || data?.base));
+      const memoryUsed = Number(data?.memory?.count || 0);
+      const decisionType = String(data?.memory?.decision || "reasoning").toLowerCase();
+      const usingMemory = Boolean(data?.memory?.used) && memoryUsed > 0 && decisionType === "memory";
+      const normalizedConfidence = Math.max(0, Math.min(1, Number(data?.analysis?.confidence || 0) / 100));
 
-      const outcome = Number(data?.improved?.confidence || 0) >= 0.7 ? "Resolved" : "Failed";
-      setIncidents((prev) => [{ summary: incidentText.slice(0, 56), status: outcome }, ...prev].slice(0, 8));
-      const learnedFrom = Number(data?.memory_used ?? resolvedMemories.length ?? 0);
-      if (resolvedMode === "reasoning_only") {
-        setCommandStatus("No relevant memory found - using reasoning");
+      setBase({
+        root_cause: usingMemory ? "Reasoning baseline replaced by validated memory pattern" : "Reasoning-only baseline",
+        fix: String(data?.solution?.before || "Baseline unavailable"),
+        confidence: Math.max(0, normalizedConfidence - (usingMemory ? 0.08 : 0.02)),
+      });
+
+      setImproved({
+        root_cause: String(data?.analysis?.rootCause || "Unknown"),
+        fix: String(data?.solution?.after || "No recommendation generated"),
+        confidence: normalizedConfidence,
+        applied_patterns: Array.isArray(data?.solution?.appliedPatterns) ? data.solution.appliedPatterns : [],
+      });
+
+      const transformedMemories = mapMemories({
+        used: Boolean(data?.memory?.used),
+        items: Array.isArray(data?.memory?.items) ? data.memory.items : [],
+      });
+
+      setUsedMemories(transformedMemories);
+      setReasoningTrace(data?.trace || data?.strict_contract?.trace || null);
+      setDecisionTrace({
+        scope: String(data?.scope?.blast_radius || data?.strict_contract?.scope?.blast_radius || "unknown"),
+        change_detected: Boolean(data?.change?.exists),
+        memory_used: Boolean(data?.memory?.used),
+        reason: String(
+          data?.causal_override?.override
+            ? data?.causal_override?.reason || "override applied"
+            : data?.memory?.used
+              ? data?.memory?.reason || "memory used"
+              : data?.memory?.rejectionReason || data?.memory?.reason || "no confirmed change + weak signals"
+        ),
+        confidence: Number((data?.solution?.confidence ?? data?.improved?.confidence ?? normalizedConfidence ?? 0).toFixed(2)),
+      });
+      setImprovementScore(Number(data?.solution?.improvement || 0));
+      setAnalysisMode(usingMemory ? "memory" : "reasoning_only");
+      setMemoryUsedCount(memoryUsed);
+      setMemoryRejectedReason(String(data?.memory?.rejectionReason || ""));
+      setMemoryMatchReason(String(data?.memory?.matchReason || ""));
+      setExplicitPatterns(Array.isArray(data?.solution?.appliedPatterns) ? data.solution.appliedPatterns : []);
+      setLastInput(input);
+      setLastRootCause(String(data?.analysis?.rootCause || "Unknown"));
+      setLastFix(String(data?.solution?.after || "No recommendation generated"));
+
+      const outcome = normalizedConfidence >= 0.7 ? "Resolved" : "Failed";
+      setIncidents((prev) => [{ summary: input.slice(0, 56), status: outcome }, ...prev].slice(0, 10));
+
+      if (usingMemory) {
+        setCommandStatus(`Validated memory used from ${memoryUsed} record(s)`);
       } else {
-        setCommandStatus(`Learned from ${learnedFrom} past incidents`);
+        setCommandStatus("Reasoning-only decision used");
       }
-    } catch (_err) {
-      setBase({ root_cause: "Service unavailable", fix: "Check API route health and logs", confidence: 0.28 });
-      setImproved({ root_cause: "Memory unavailable", fix: "Bootstrap memory then retry analysis", confidence: 0.45 });
+    } catch {
+      setAnalysisError("Analysis request failed. Check API health and retry with more context.");
+      setBase({ root_cause: "Service unavailable", fix: "Check API routes and deployment logs", confidence: 0.25 });
+      setImproved({ root_cause: "Memory unavailable", fix: "Bootstrap memory and retry", confidence: 0.4 });
       setUsedMemories([]);
       setReasoningTrace(null);
+      setDecisionTrace(null);
       setImprovementScore(0);
       setAnalysisMode("reasoning_only");
-      setCommandStatus("Analysis fallback mode");
+      setMemoryUsedCount(0);
+      setMemoryRejectedReason("Analysis failed before memory validation");
+      setMemoryMatchReason("");
+      setExplicitPatterns([]);
+      setCommandStatus("Fallback mode active");
     } finally {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -344,31 +426,9 @@ export default function HomePage() {
         },
       });
       if (!response.ok) throw new Error("Bootstrap failed");
-      setCommandStatus("Memory bootstrapped");
-    } catch (_err) {
-      setCommandStatus("Bootstrap failed");
-    }
-  }
-
-  async function runJudgeTest() {
-    setCommandStatus("Running judge scenario scorecard...");
-    try {
-      const response = await fetch("/api/judge-test", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-team-id": TEAM_ID,
-          "x-user-id": USER_ID,
-        },
-        body: JSON.stringify({ bootstrap: true }),
-      });
-
-      const data = await response.json();
-      const score = Number(data?.summary?.score_percent || 0);
-      setJudgeScore(score);
-      setCommandStatus(`Judge scorecard completed: ${score}%`);
-    } catch (_err) {
-      setCommandStatus("Judge scorecard failed");
+      setCommandStatus("Memory bootstrap completed");
+    } catch {
+      setCommandStatus("Memory bootstrap failed");
     }
   }
 
@@ -389,9 +449,24 @@ export default function HomePage() {
       if (memories.length > 0) {
         setUsedMemories((prev) => dedupeMemories([...memories, ...prev]).slice(0, 12));
       }
-    } catch (error) {
-      console.error("Memory panel refresh failed:", error);
+    } catch {
       setCommandStatus("Memory refresh failed");
+    }
+  }
+
+  async function refreshMemoryUsabilityContext() {
+    const query = String(incidentText || lastInput || "").trim();
+    if (!query) {
+      setCommandStatus("Enter an incident first");
+      return;
+    }
+    setRefreshingMemory(true);
+    setCommandStatus("Refreshing memory matches");
+    try {
+      await refreshMemoryPanel(query);
+      setCommandStatus("Memory matches refreshed");
+    } finally {
+      setRefreshingMemory(false);
     }
   }
 
@@ -401,6 +476,7 @@ export default function HomePage() {
       return;
     }
 
+    setFeedbackSubmitting(true);
     try {
       const response = await fetch("/api/feedback", {
         method: "POST",
@@ -423,617 +499,401 @@ export default function HomePage() {
       });
 
       const data = await response.json();
-      console.log("Feedback API response:", data);
-
       if (!response.ok) {
-        setCommandStatus("Memory save failed");
+        setCommandStatus("Feedback save failed");
         return;
       }
 
-      if (data?.status === "stored") {
-        setCommandStatus("Memory saved");
+      if (data?.status === "stored" || data?.status === "updated") {
+        setCommandStatus(data?.status === "updated" ? "Memory updated from feedback" : "Feedback saved to memory");
         await refreshMemoryPanel(lastInput);
+        if (data?.confidence != null) {
+          setImproved((prev) => {
+            if (!prev) return prev;
+            const confidence = Number(data.confidence);
+            if (!Number.isFinite(confidence)) return prev;
+            return {
+              ...prev,
+              confidence: confidence > 1 ? confidence / 100 : confidence,
+            };
+          });
+        }
       } else {
-        setCommandStatus(data?.reason || "Memory not stored");
+        setCommandStatus(data?.reason || "Feedback not stored");
       }
-    } catch (error) {
-      console.error("Feedback submit failed:", error);
-      setCommandStatus("Memory save failed");
+    } catch {
+      setCommandStatus("Feedback save failed");
+    } finally {
+      setFeedbackSubmitting(false);
     }
   }
 
-  function onSwipeStart(event) {
-    setTouchStartX(event.touches?.[0]?.clientX ?? null);
+  function renderAnalysisState() {
+    if (loading) {
+      return (
+        <div className="ops-state ops-state-loading">
+          <p className="ops-state-title">Analysis running</p>
+          <p className="ops-state-message">{step || "Evaluating signal and memory quality"}</p>
+        </div>
+      );
+    }
+
+    if (analysisError) {
+      return (
+        <div className="ops-state ops-state-error">
+          <p className="ops-state-title">Analysis error</p>
+          <p className="ops-state-message">{analysisError}</p>
+        </div>
+      );
+    }
+
+    if (!hasResult) {
+      return (
+        <div className="ops-state">
+          <p className="ops-state-title">No analysis yet</p>
+          <p className="ops-state-message">Submit incident context to generate a remediation recommendation.</p>
+        </div>
+      );
+    }
+
+    return null;
   }
 
-  function onSwipeEnd(event) {
-    if (touchStartX == null) return;
-    const endX = event.changedTouches?.[0]?.clientX ?? touchStartX;
-    const delta = endX - touchStartX;
-    if (Math.abs(delta) < 45) return;
-
-    const index = MOBILE_TABS.indexOf(mobileTab);
-    if (delta < 0 && index < MOBILE_TABS.length - 1) setMobileTab(MOBILE_TABS[index + 1]);
-    if (delta > 0 && index > 0) setMobileTab(MOBILE_TABS[index - 1]);
-    setTouchStartX(null);
-  }
-
-  async function applyCommand(value) {
-    const cmd = value.trim().toLowerCase();
-    if (!cmd) {
-      setShowPalette(false);
-      return;
-    }
-
-    if (cmd.includes("memory")) {
-      setMobileTab("memory");
-      setDesktopTab("memory");
-      setCommandStatus("Navigated to Memory");
-    }
-    if (cmd.includes("insight")) {
-      setMobileTab("insights");
-      setDesktopTab("insights");
-      setCommandStatus("Navigated to Insights");
-    }
-    if (cmd.includes("dashboard")) {
-      setMobileTab("dashboard");
-      setDesktopTab("dashboard");
-      setCommandStatus("Navigated to Dashboard");
-    }
-    if (cmd.includes("incident")) {
-      setDesktopTab("incidents");
-      setMobileTab("analyze");
-      setCommandStatus("Navigated to Incidents");
-    }
-    if (cmd.startsWith("analyze ")) {
-      const incident = value.trim().slice(8).trim();
-      if (incident) {
-        setError(incident);
-        setMobileTab("analyze");
-        setDesktopTab("dashboard");
-        setShowPalette(false);
-        setCommandInput("");
-        void analyzeIncident(incident);
-        return;
-      }
-    }
-    if (cmd === "analyze") {
-      setMobileTab("analyze");
-      setDesktopTab("dashboard");
-      setCommandStatus("Ready to analyze");
-    }
-    if (cmd.includes("bootstrap")) {
-      await bootstrapMemory();
-    }
-    setShowPalette(false);
-    setCommandInput("");
-  }
-
-  const analysisFlow = [
-    "Input analyzed",
-    `Memory retrieved (${memoryCount})`,
-    "Decision generated",
-  ];
+  const activeResult = improved || base;
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-200">
-      <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-24 -left-24 h-72 w-72 rounded-full bg-indigo-500/10 blur-3xl" />
-        <div className="absolute top-1/3 -right-24 h-72 w-72 rounded-full bg-purple-500/10 blur-3xl" />
-      </div>
-      <header className="sticky top-0 z-30 border-b border-slate-800/90 bg-[#0f172a]/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-3 px-4 py-3 lg:px-8">
+    <div className="ops-app min-h-screen text-slate-800" aria-busy={loading || refreshingMemory || feedbackSubmitting}>
+      <div className="ops-backdrop" />
+      {(loading || refreshingMemory || feedbackSubmitting) && <div className="ops-progress" role="status" aria-live="polite" aria-label="Loading" />}
+
+      <header className="ops-header sticky top-0 z-40 border-b border-slate-200/70 backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-4 py-3 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full border border-indigo-400/40 bg-slate-950/80 p-1 shadow-lg shadow-indigo-900/30">
+            <div className="h-11 w-11 rounded-xl border border-slate-300/80 bg-white p-1.5 shadow-sm">
               <img
                 src="/6F1E559E-0C07-40B9-8C4C-C151F5B31A6A_1_201_a.jpeg?v=20260415"
                 alt="OpsMind AI"
-                className="h-full w-full rounded-full object-contain"
+                className="h-full w-full rounded-lg object-contain"
               />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-slate-100 md:text-lg">OpsMind AI</h1>
-              <p className="text-[11px] text-slate-400 md:text-xs">AI Agent Incident Intelligence Platform</p>
+              <p className="text-sm font-semibold text-slate-900">OpsMind AI</p>
+              <p className="text-xs text-slate-500">Incident Intelligence Workspace</p>
             </div>
           </div>
 
-          <div className="hidden flex-1 px-4 lg:block">
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowPalette(true)}
-              className="w-full rounded-xl border border-slate-700/80 bg-slate-900/60 px-4 py-2 text-left text-sm text-slate-400 transition-all duration-300 hover:border-indigo-400/40 hover:bg-slate-900/80"
+              className={`${BTN.secondary} h-10 w-10 p-0`}
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
             >
-              Search incidents, run command, navigate... <span className="float-right text-xs text-slate-500">Ctrl+K</span>
+              {theme === "dark" ? (
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                  <circle cx="12" cy="12" r="4.2" />
+                  <path d="M12 2.5v2.3M12 19.2v2.3M4.8 4.8l1.6 1.6M17.6 17.6l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.8 19.2l1.6-1.6M17.6 6.4l1.6-1.6" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden="true">
+                  <path d="M20.2 14.6A8.7 8.7 0 0 1 9.4 3.8a9 9 0 1 0 10.8 10.8z" />
+                </svg>
+              )}
+              <span className="sr-only">{theme === "dark" ? "Light mode" : "Dark mode"}</span>
             </button>
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px] md:gap-3 md:text-xs">
-            <span className="rounded-full border border-green-500/40 bg-green-500/15 px-2.5 py-1 text-green-300">Learning Active</span>
-            <span className="rounded-full border border-purple-500/40 bg-purple-500/15 px-2.5 py-1 text-purple-200">Memory {memoryCount}</span>
-            <span className={`rounded-full px-2.5 py-1 ${healthBadge(apiHealthStatus)}`}>
-              API {apiHealthStatus.toUpperCase()}
-              {apiLatencyMs !== null ? ` ${apiLatencyMs}ms` : ""}
-            </span>
-            <span className="rounded-full border border-slate-700 bg-slate-800 px-2.5 py-1">ops-user</span>
-          </div>
-        </div>
-        <div className="border-t border-slate-800/70 bg-slate-950/35 px-4 py-2 lg:px-8">
-          <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-            <span>Control Plane: opsmind-default</span>
-            <span>Inference: memory-guided reasoning active</span>
-            <span>SLO Guard: latency + error budget tracking</span>
+            <div className="hidden items-center gap-2 md:flex">
+              <span className="ops-pill">Team {TEAM_ID}</span>
+              <span className={`ops-pill ${healthBadge(apiHealthStatus)}`}>
+                API {apiHealthStatus.toUpperCase()}
+                {apiLatencyMs !== null ? ` ${apiLatencyMs}ms` : ""}
+              </span>
+              <span className="ops-pill">User {USER_ID}</span>
+            </div>
           </div>
         </div>
       </header>
 
-      {commandStatus && (
-        <div className="mx-auto mt-4 max-w-[1600px] px-4 lg:px-8">
-          <div className="animate-fadeIn rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-3 py-2 text-xs text-indigo-200">{commandStatus}</div>
-        </div>
-      )}
-
-      <section className="mx-auto mt-4 max-w-[1600px] px-4 lg:px-8">
-        <div className="rounded-2xl border border-slate-700/60 bg-gradient-to-r from-indigo-950/50 via-slate-900/70 to-purple-950/40 p-4 shadow-card backdrop-blur md:p-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <main className="mx-auto max-w-[1440px] px-4 pb-24 pt-8 lg:px-8 lg:pb-12">
+        <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm lg:p-10">
+          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1.28fr,0.72fr] lg:items-center">
             <div>
-              <p className="text-xs uppercase tracking-wide text-indigo-300">Live AI Agent Control</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-100 md:text-xl">Production Incident Intelligence Console</h2>
-              <p className="mt-1 text-xs text-slate-300 md:text-sm">Run judge scenarios, seed memory, and demonstrate consistent reasoning with memory relevance control.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={runJudgeTest}
-                className="rounded-xl border border-indigo-400/40 bg-indigo-500/20 px-3 py-2 text-xs font-medium text-indigo-100 transition hover:bg-indigo-500/30"
-              >
-                Run Judge Test
-              </button>
-              <button
-                onClick={bootstrapMemory}
-                className="rounded-xl border border-purple-400/40 bg-purple-500/20 px-3 py-2 text-xs font-medium text-purple-100 transition hover:bg-purple-500/30"
-              >
-                Bootstrap Memory
-              </button>
-              {judgeScore !== null && (
-                <span className="rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-3 py-2 text-xs font-semibold text-emerald-200">
-                  Judge Score {judgeScore}%
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <div className="mx-auto hidden max-w-[1600px] grid-cols-[240px,1fr,320px] gap-6 px-8 py-6 lg:grid">
-        <aside className="sticky top-28 h-fit rounded-2xl border border-slate-700/60 bg-white/[0.03] p-4 shadow-card backdrop-blur">
-          <div className="mb-4 border-b border-slate-800/70 pb-3">
-            <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Workspace</p>
-            <h3 className="mt-1 text-sm font-semibold text-slate-100">Desktop Sections</h3>
-            <p className="mt-1 text-xs text-slate-400">Switch views without changing the mobile experience.</p>
-          </div>
-          <nav className="space-y-2">
-            {DESKTOP_TABS.map((tab) => {
-              const active = desktopTab === tab;
-              const meta = DESKTOP_TAB_META[tab] || { label: tab, description: "" };
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setDesktopTab(tab)}
-                  className={`group w-full rounded-xl border px-3 py-3 text-left text-sm transition-all duration-300 ${
-                    active
-                      ? "border-indigo-400/40 bg-indigo-500/15 text-indigo-100 shadow-lg shadow-indigo-900/20"
-                      : "border-slate-700/50 bg-slate-900/20 text-slate-300 hover:border-slate-600 hover:bg-slate-800/70"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="font-medium">{meta.label}</span>
-                    <span className={`h-2.5 w-2.5 rounded-full transition ${active ? "bg-indigo-300" : "bg-slate-600 group-hover:bg-slate-400"}`} />
-                  </div>
-                  <p className="mt-1 text-[11px] leading-4 text-slate-500 group-hover:text-slate-400">
-                    {meta.description}
-                  </p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-teal-700">Enterprise Reliability Layer</p>
+              <h1 className="mt-3 max-w-3xl text-3xl font-semibold leading-tight text-slate-900 md:text-4xl lg:text-[2.7rem]">Resolve production incidents faster with validated memory and safer remediation plans</h1>
+              <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-600">A client-facing reliability workspace for high-trust diagnosis, decision traceability, and governed remediation under pressure.</p>
+              <div className="mt-6 flex flex-wrap gap-2.5">
+                <button className={BTN.primary} disabled={loading} onClick={() => void analyzeIncident()}>{loading ? "Analyzing..." : "Run analysis"}</button>
+                <button className={BTN.secondary} disabled={loading} onClick={bootstrapMemory}>Bootstrap memory</button>
+                <button className={BTN.secondary} disabled={refreshingMemory || loading} onClick={() => void refreshMemoryUsabilityContext()}>
+                  {refreshingMemory ? "Refreshing..." : "Refresh memory context"}
                 </button>
-              );
-            })}
-          </nav>
-        </aside>
-
-        <main className="space-y-6">
-          <div key={desktopTab} className="animate-fadeIn transition-all duration-300">
-            <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-br from-white/[0.06] via-slate-900/55 to-transparent p-5 shadow-card backdrop-blur">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Desktop Workspace</p>
-                  <h2 className="mt-1 text-2xl font-semibold text-slate-100">{activeDesktopMeta.label}</h2>
-                  <p className="mt-1 text-sm text-slate-300">{activeDesktopMeta.description}</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
-                  <span className="rounded-full border border-slate-700 bg-slate-900/60 px-3 py-1">Active: {activeDesktopMeta.label}</span>
-                  <span className="rounded-full border border-indigo-400/30 bg-indigo-500/15 px-3 py-1 text-indigo-200">Memory {memoryCount}</span>
-                  <span className="rounded-full border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-emerald-200">+{improvement || 20}% lift</span>
-                </div>
-              </div>
-            </section>
-
-            {desktopTab === "dashboard" && (
-              <>
-                <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Input Command Bar</p>
-                  <div className="mt-3 flex items-start gap-3">
-                    <textarea
-                      value={error}
-                      onChange={(e) => setError(e.target.value)}
-                      placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
-                      className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
-                    />
-                    <button
-                      onClick={() => void analyzeIncident()}
-                      disabled={loading}
-                      className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {loading ? "Analyzing..." : "Analyze Incident"}
-                    </button>
-                  </div>
-                  {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
-                </section>
-
-                <section className="rounded-2xl border border-slate-700/60 bg-white/[0.04] p-6 shadow-card backdrop-blur animate-fadeIn">
-                  <div className="mb-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-2xl font-semibold text-slate-100">AI Analysis</h3>
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Most Important Panel</p>
-                    </div>
-                    <span className="rounded-full border border-green-500/40 bg-green-500/15 px-3 py-1 text-xs text-green-300">+{improvement || 20}% better using memory</span>
-                  </div>
-
-                  <p className="mb-1 text-xs text-indigo-300">Learned from {memoryCount} past incidents</p>
-                  <p className="mb-4 text-xs text-cyan-300">🧠 Memory Used: {memoryCount}</p>
-
-                  <div className="mb-5 grid grid-cols-3 gap-2 text-xs text-slate-300">
-                    {analysisFlow.map((item) => (
-                      <div key={item} className="rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2">
-                        {item}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-xl border border-slate-700 bg-slate-900/50 p-4">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Before (No Memory)</p>
-                      <p className="mt-2 text-sm text-slate-100">{normalizeFix(base)}</p>
-                      <p className="mt-3 text-xs text-slate-400">Root Cause: {normalizeRoot(base)}</p>
-                    </div>
-                    <div className="rounded-xl border border-green-500/50 bg-green-900/20 p-4 shadow-lg shadow-green-900/20">
-                      <p className="text-xs uppercase tracking-wide text-green-300">After (With Memory)</p>
-                      <p className="mt-2 text-sm text-slate-100">{normalizeFix(improved)}</p>
-                      <p className="mt-3 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
-                      <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                      <p className="mt-1 text-xs text-emerald-300">
-                        {analysisMode === "reasoning_only"
-                          ? "⚡ Reasoning-driven (memory not applicable)"
-                          : "⚡ Enhanced using memory-supported production patterns"}
-                      </p>
-                      {analysisMode === "reasoning_only" && (
-                        <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
-                          🧠 Why this works:
-                          <div className="mt-1">- Prevents overload propagation</div>
-                          <div className="mt-1">- Stabilizes system under peak traffic</div>
-                        </div>
-                      )}
-                      {appliedPatterns.length > 0 && (
-                        <div className="mt-3 text-xs text-emerald-200">
-                          <p className="font-medium">🧠 Applied patterns:</p>
-                          {appliedPatterns.map((pattern) => (
-                            <p key={pattern} className="mt-1">- {pattern}</p>
-                          ))}
-                        </div>
-                      )}
-                      {componentTags.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-1.5">
-                          {componentTags.map((tag) => (
-                            <span key={tag} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
-                              [{tag}]
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          onClick={() => void sendFeedback("worked")}
-                          className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/25"
-                        >
-                          ✅ Worked
-                        </button>
-                        <button
-                          onClick={() => void sendFeedback("failed")}
-                          className="rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200 transition hover:bg-rose-500/20"
-                        >
-                          ⚠ Not Resolved
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <ReasoningTrace trace={reasoningTrace} />
-                </section>
-
-                <section className="grid grid-cols-2 gap-6 pb-8">
-                  <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                    <h3 className="text-lg font-semibold">System Insights</h3>
-                    <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                      <li>70% timeout issues</li>
-                      <li>Most failures after deploy</li>
-                      <li>Memory-backed fixes show higher confidence trend</li>
-                    </ul>
-                  </article>
-                  <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                    <h3 className="text-lg font-semibold">Incident Feed</h3>
-                    <div className="mt-3 space-y-2">
-                      {incidents.map((incident, idx) => (
-                        <div key={`${incident.summary}-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
-                          <span>{incident.summary}</span>
-                          <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                </section>
-              </>
-            )}
-
-            {desktopTab === "incidents" && (
-              <>
-                <section className="rounded-2xl border border-slate-700/60 bg-gradient-to-b from-white/[0.06] to-transparent p-5 shadow-card backdrop-blur">
-                  <p className="text-xs uppercase tracking-wide text-slate-400">Report Incident</p>
-                  <div className="mt-3 flex items-start gap-3">
-                    <textarea
-                      value={error}
-                      onChange={(e) => setError(e.target.value)}
-                      placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
-                      className="min-h-28 flex-1 rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
-                    />
-                    <button
-                      onClick={() => void analyzeIncident()}
-                      disabled={loading}
-                      className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {loading ? "Analyzing..." : "Analyze Incident"}
-                    </button>
-                  </div>
-                  {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
-                </section>
-
-                <section className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                  <h3 className="text-lg font-semibold">Incident Feed</h3>
-                  <div className="mt-3 space-y-2">
-                    {incidents.map((incident, idx) => (
-                      <div key={`${incident.summary}-tab-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm">
-                        <span>{incident.summary}</span>
-                        <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              </>
-            )}
-
-            {desktopTab === "insights" && (
-              <section className="grid grid-cols-2 gap-6 pb-8">
-                <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                  <h3 className="text-lg font-semibold">System Insights</h3>
-                  <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                    <li>70% timeout issues</li>
-                    <li>Most failures after deploy</li>
-                    <li>Memory-backed fixes show higher confidence trend</li>
-                  </ul>
-                </article>
-                <article className="rounded-2xl border border-slate-700/60 bg-white/[0.03] p-5 shadow-card backdrop-blur">
-                  <h3 className="text-lg font-semibold">Current Analysis Snapshot</h3>
-                  <p className="mt-3 text-sm text-slate-200">Root Cause: {normalizeRoot(improved || base)}</p>
-                  <p className="mt-3 text-sm text-slate-100">{normalizeFix(improved || base)}</p>
-                </article>
-              </section>
-            )}
-
-            {desktopTab === "memory" && (
-              <section className="rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-lg font-semibold">Memory Details</h3>
-                  <span className="rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-200">Top 3</span>
-                </div>
-                <div className="space-y-3">
-                  {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory retrieved yet.</p>}
-                  {memoryTop3.map((memory, idx) => (
-                    <div key={`memory-tab-${idx}-${memory?.id || "m"}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm">
-                      <p className="text-xs text-slate-400">Summary</p>
-                      <p className="mt-1 text-slate-100">{getSummary(memory)}</p>
-                      <div className="mt-2 flex items-center justify-between text-xs">
-                        <span className="text-purple-200">Score {score(memory)}%</span>
-                        <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-        </main>
-
-        <aside className="sticky top-24 h-fit rounded-2xl border border-purple-500/30 bg-gradient-to-b from-purple-900/20 to-slate-900/40 p-5 shadow-card backdrop-blur">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-lg font-semibold">Memory Panel</h3>
-            <span className="rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-200">Top 3</span>
-          </div>
-          <div className="space-y-3">
-            {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory retrieved yet.</p>}
-            {memoryTop3.map((memory, idx) => (
-              <div key={`${idx}-${memory?.id || "m"}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm transition-all duration-300 hover:scale-[1.02]">
-                <p className="text-xs text-slate-400">Summary</p>
-                <p className="mt-1 text-slate-100">{getSummary(memory)}</p>
-                <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className="text-purple-200">Score {score(memory)}%</span>
-                  <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </aside>
-      </div>
-
-      <main className="px-4 pb-24 pt-4 lg:hidden" onTouchStart={onSwipeStart} onTouchEnd={onSwipeEnd}>
-        {mobileTab === "dashboard" && (
-          <section className="space-y-4 animate-fadeIn">
-            <div className="rounded-2xl border border-slate-700/70 bg-white/[0.03] p-4 backdrop-blur">
-              <h2 className="text-xl font-semibold">Dashboard</h2>
-              <p className="mt-2 text-sm text-slate-300">AI system learning from incident memory and improving decision confidence.</p>
-              <p className="mt-3 text-xs text-green-300">+{improvement || 20}% decision lift with memory</p>
-              <p className="mt-1 text-xs text-indigo-300">⚡ Learned from {memoryCount} past incidents</p>
-            </div>
-            <div className="rounded-2xl border border-slate-700/70 bg-white/[0.03] p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-wide text-slate-400">Recent Incidents</p>
-              <div className="mt-3 space-y-2">
-                {incidents.map((incident, idx) => (
-                  <div key={`${incident.summary}-mobile-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-700 bg-slate-900/50 px-3 py-2 text-sm">
-                    <span>{incident.summary}</span>
-                    <span className={incident.status === "Resolved" ? "text-green-300" : "text-red-300"}>{incident.status}</span>
-                  </div>
-                ))}
               </div>
             </div>
-          </section>
+
+            <div className="grid grid-cols-1 gap-2.5">
+              {TRUST_SIGNALS.map((item) => (
+                <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {commandStatus && (
+          <div className="mt-5 rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-800">
+            {commandStatus}
+          </div>
         )}
 
-        {mobileTab === "analyze" && (
-          <section className="space-y-4 animate-fadeIn">
-            <div className="rounded-2xl border border-slate-700/70 bg-white/[0.03] p-4 backdrop-blur">
-              <p className="text-xs uppercase tracking-wide text-slate-400">Analyze Incident</p>
-              <textarea
-                value={error}
-                onChange={(e) => setError(e.target.value)}
-                placeholder={"Describe your issue...\nExample: Redis timeout after deployment"}
-                className="mt-3 min-h-36 w-full rounded-xl border border-slate-700 bg-slate-950/60 p-4 text-sm outline-none ring-indigo-500/40 placeholder:text-slate-500 focus:ring"
-              />
-              <button
-                onClick={() => void analyzeIncident()}
-                disabled={loading}
-                className="sticky bottom-20 mt-4 w-full rounded-xl bg-indigo-500 px-4 py-3 text-sm font-medium text-white transition-all duration-300 hover:scale-[1.02] disabled:opacity-60"
-              >
-                {loading ? "Analyzing..." : "Analyze Incident"}
-              </button>
-              {loading && <p className="mt-3 text-sm text-indigo-300 animate-pulse">{`⚡ ${step}`}</p>}
-            </div>
+        <section className="mt-6 grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+          {kpiCards.map((card) => (
+            <article key={card.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">{card.label}</p>
+              <p className="mt-2.5 text-3xl font-semibold leading-none text-slate-900">{card.value}</p>
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">{card.hint}</p>
+            </article>
+          ))}
+        </section>
 
-            <div className="space-y-4 mt-4">
-              <div className="rounded-xl border border-gray-700 bg-gray-900 p-4">
-                <p className="mb-1 text-xs text-gray-400">Before</p>
-                <p>{normalizeFix(base)}</p>
+        <section className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-[1.45fr,0.55fr]">
+          <div className="space-y-5">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Incident studio</p>
+                  <h2 className="mt-1.5 text-xl font-semibold text-slate-900">Incident intake and recommendation</h2>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                  {analysisMode === "reasoning_only" ? "Reasoning-only mode" : "Memory-assisted mode"}
+                </span>
               </div>
 
-              <div className="rounded-xl border border-green-500 bg-green-900/20 p-4 shadow-lg">
-                <p className="mb-1 text-xs text-green-400">After (Improved)</p>
-                <p>{normalizeFix(improved)}</p>
-                <p className="mt-2 text-xs text-green-300">Confidence: {Math.round(afterConfidence * 100)}%</p>
-                <p className="mt-1 text-xs text-green-300">⚡ +{improvement}% improvement</p>
-                <p className="mt-1 text-xs text-emerald-300">
-                  {analysisMode === "reasoning_only"
-                    ? "⚡ Reasoning-driven (memory not applicable)"
-                    : "⚡ Enhanced using memory-supported production patterns"}
-                </p>
-                {analysisMode === "reasoning_only" && (
-                  <div className="mt-2 rounded-lg border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-200">
-                    🧠 Why this works:
-                    <div className="mt-1">- Prevents overload propagation</div>
-                    <div className="mt-1">- Stabilizes system under peak traffic</div>
+              <textarea
+                value={incidentText}
+                onChange={(event) => setIncidentText(event.target.value)}
+                placeholder="Describe symptoms, deployment window, dependencies, and constraints"
+                className="ops-input mt-5 min-h-44 w-full"
+              />
+
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <button onClick={() => void analyzeIncident()} disabled={loading} className={BTN.primary}>
+                  {loading ? "Analyzing" : "Run analysis"}
+                </button>
+                <button onClick={() => setIncidentText("")} className={BTN.secondary}>Clear input</button>
+              </div>
+
+              <div className="mt-5">{renderAnalysisState()}</div>
+            </article>
+
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recommendation</p>
+                  <h3 className="mt-1.5 text-xl font-semibold text-slate-900">Decision output</h3>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                  Confidence {Math.round(afterConfidence * 100)}%
+                </span>
+              </div>
+
+              {hasResult ? (
+                <div className="mt-5 grid grid-cols-1 gap-3.5 md:grid-cols-2">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Baseline</p>
+                    <p className="mt-2.5 text-sm leading-relaxed text-slate-700">{normalizeFix(base)}</p>
+                    <p className="mt-2.5 text-xs leading-relaxed text-slate-500">Root cause: {normalizeRoot(base)}</p>
                   </div>
-                )}
-                {appliedPatterns.length > 0 && (
-                  <div className="mt-2 text-xs text-emerald-200">
-                    <p className="font-medium">🧠 Applied patterns:</p>
+
+                  <div className="rounded-xl border border-teal-200 bg-teal-50 p-5">
+                    <p className="text-xs uppercase tracking-[0.18em] text-teal-700">Final recommendation</p>
+                    <p className="mt-2.5 text-sm leading-relaxed text-slate-700">{normalizeFix(improved)}</p>
+                    <p className="mt-2.5 text-xs leading-relaxed text-teal-700">Root cause: {normalizeRoot(improved)}</p>
+                    <p className="mt-2 text-xs text-teal-700">Improvement: {improvement}%</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-teal-700">
+                      {memoryCount > 0 ? `Memory used from ${memoryCount} record(s)` : `Memory rejected: ${memoryRejectedReason || "low relevance"}`}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-slate-500">No recommendation yet.</p>
+              )}
+
+              {appliedPatterns.length > 0 && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Applied patterns</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
                     {appliedPatterns.map((pattern) => (
-                      <p key={`mobile-${pattern}`} className="mt-1">- {pattern}</p>
-                    ))}
-                  </div>
-                )}
-                {componentTags.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {componentTags.map((tag) => (
-                      <span key={`mobile-tag-${tag}`} className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-200">
-                        [{tag}]
+                      <span key={pattern} className="rounded-full border border-teal-300 bg-teal-100 px-2 py-0.5 text-[11px] text-teal-800">
+                        {pattern}
                       </span>
                     ))}
                   </div>
-                )}
-                <p className="mt-2 text-xs text-cyan-200">🧠 Memory Used: {memoryCount}</p>
-                <p className="mt-1 text-xs text-slate-300">
-                  🧠 Memory Decision: {analysisMode === "reasoning_only" ? `Rejected (${reasoningTrace?.rejected?.[0]?.reason || "no relevant memory"})` : "Used"}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    onClick={() => void sendFeedback("resolved")}
-                    className="rounded-lg border border-emerald-400/40 bg-emerald-500/15 px-3 py-1.5 text-xs font-medium text-emerald-200"
-                  >
-                    ✅ Resolved
-                  </button>
-                  <button
-                    onClick={() => void sendFeedback("failed")}
-                    className="rounded-lg border border-rose-400/40 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-200"
-                  >
-                    ⚠ Not Resolved
-                  </button>
                 </div>
-              </div>
-            </div>
-          </section>
-        )}
+              )}
 
-        {mobileTab === "memory" && (
-          <section className="space-y-4 animate-fadeIn">
-            <div className="rounded-2xl border border-purple-500/40 bg-purple-900/10 p-4 backdrop-blur">
-              <h2 className="text-lg font-semibold">Memory List</h2>
-              <div className="mt-3 space-y-3">
-                {memoryTop3.length === 0 && <p className="text-sm text-slate-400">No memory used yet.</p>}
-                {memoryTop3.map((memory, idx) => (
-                  <div key={`mobile-mem-${idx}`} className="rounded-xl border border-slate-700 bg-slate-900/50 p-3">
-                    <p className="text-sm text-slate-100">{getSummary(memory)}</p>
-                    <div className="mt-2 flex justify-between text-xs">
-                      <span className="text-purple-200">Score {score(memory)}%</span>
-                      <span className="text-indigo-200">Relevance {relevance(memory)}%</span>
-                    </div>
+              {componentTags.length > 0 && (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Component tags</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {componentTags.map((tag) => (
+                      <span key={tag} className="rounded-full border border-slate-300 bg-slate-100 px-2 py-0.5 text-[11px] text-slate-700">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {hasResult && (
+                <div className="mt-5 flex flex-wrap gap-2.5">
+                  <button onClick={() => void sendFeedback("worked")} disabled={feedbackSubmitting} className={BTN.success}>{feedbackSubmitting ? "Saving..." : "Mark worked"}</button>
+                  <button onClick={() => void sendFeedback("failed")} disabled={feedbackSubmitting} className={BTN.danger}>{feedbackSubmitting ? "Saving..." : "Mark failed"}</button>
+                </div>
+              )}
+
+              {hasResult && <ReasoningTrace trace={reasoningTrace} />}
+              {hasResult && <DecisionTrace trace={decisionTrace} />}
+            </article>
+
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Agency operating model</p>
+              <div className="mt-4 grid grid-cols-1 gap-2.5 md:grid-cols-2">
+                {AGENCY_OPERATING_MODEL.map((item, index) => (
+                  <div key={item} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700">
+                    <span className="mr-2 text-teal-700">{index + 1}.</span>
+                    {item}
                   </div>
                 ))}
               </div>
-            </div>
-          </section>
-        )}
+            </article>
+          </div>
 
-        {mobileTab === "insights" && (
-          <section className="space-y-4 animate-fadeIn">
-            <div className="rounded-2xl border border-slate-700/70 bg-white/[0.03] p-4 backdrop-blur">
-              <h2 className="text-lg font-semibold">Insights</h2>
-              <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                <li>70% timeout issues</li>
-                <li>Most failures after deploy</li>
-                <li>Memory-backed recommendations increase confidence</li>
-              </ul>
+          <aside className="space-y-5">
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Validated memory</p>
+                  <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+                    {memoryCount > 0
+                      ? `${memoryCount} memory match(es) available for this decision`
+                      : "No validated memory attached to the current decision"}
+                  </p>
+                </div>
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] text-slate-600">
+                  Matches {memoryPanelData.length}
+                </span>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <button className={BTN.secondary} disabled={refreshingMemory || loading} onClick={() => void refreshMemoryUsabilityContext()}>{refreshingMemory ? "Refreshing..." : "Refresh memory"}</button>
+              </div>
+
+              {memoryMatchReason && <p className="mt-3 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-800">{memoryMatchReason}</p>}
+              {memoryCount === 0 && (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Memory was not used: {memoryRejectedReason || "validation score below threshold"}
+                </p>
+              )}
+              <div className="mt-3">
+                <MemoryPanel data={memoryPanelData} />
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Recent incidents</p>
+              <div className="mt-4 space-y-2.5">
+                {incidents.map((incident, idx) => (
+                  <div key={`${incident.summary}-${idx}`} className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm">
+                    <span className="text-slate-700">{incident.summary}</span>
+                    <span className={incident.status === "Resolved" ? "text-teal-700" : "text-rose-700"}>{incident.status}</span>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Platform capabilities</p>
+              <div className="mt-4 space-y-2.5">
+                {SERVICE_PILLARS.map((pillar) => (
+                  <div key={pillar.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-semibold text-slate-800">{pillar.title}</p>
+                    <p className="mt-1.5 text-xs leading-relaxed text-slate-600">{pillar.detail}</p>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+          </aside>
+        </section>
+
+        <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:hidden">
+          <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Mobile quick views</p>
+          <div className="mt-3.5 flex flex-wrap gap-2">
+            {MOBILE_TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setMobileTab(tab)}
+                className={mobileTab === tab ? BTN.primary : BTN.secondary}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {mobileTab === "overview" && (
+            <div className="mt-4 space-y-2 text-sm text-slate-700">
+              <p>Resolution rate: {successRate}%</p>
+              <p>Confidence: {avgConfidence}%</p>
+              <p>Memory used: {memoryCount}</p>
             </div>
-          </section>
-        )}
+          )}
+
+          {mobileTab === "analyze" && (
+            <div className="mt-4">
+              <textarea
+                value={incidentText}
+                onChange={(event) => setIncidentText(event.target.value)}
+                placeholder="Describe incident details"
+                className="ops-input min-h-32 w-full"
+              />
+              <button onClick={() => void analyzeIncident()} disabled={loading} className={`${BTN.primary} mt-3 w-full`}>
+                {loading ? "Analyzing" : "Run analysis"}
+              </button>
+            </div>
+          )}
+
+          {mobileTab === "memory" && (
+            <div className="mt-4">
+              <div className="mb-3 flex flex-wrap gap-2">
+                <button className={BTN.secondary} disabled={refreshingMemory || loading} onClick={() => void refreshMemoryUsabilityContext()}>{refreshingMemory ? "Refreshing..." : "Refresh memory"}</button>
+              </div>
+              {memoryCount === 0 && (
+                <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  No memory used yet: {memoryRejectedReason || "run analysis with richer context"}
+                </p>
+              )}
+              <MemoryPanel data={memoryPanelData} />
+            </div>
+          )}
+
+          {mobileTab === "insights" && (
+            <div className="mt-4 space-y-2 text-sm text-slate-700">
+              <p>Root cause: {normalizeRoot(activeResult)}</p>
+              <p>Recommendation: {normalizeFix(activeResult)}</p>
+            </div>
+          )}
+        </section>
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-around border-t border-gray-800 bg-[#0f172a]/95 py-2 text-xs backdrop-blur lg:hidden">
-        <button className={`flex flex-col items-center ${mobileTab === "dashboard" ? "text-indigo-400" : "text-slate-300"}`} onClick={() => setMobileTab("dashboard")}>🏠 <span>Dashboard</span></button>
-        <button className={`flex flex-col items-center ${mobileTab === "analyze" ? "text-indigo-400" : "text-slate-300"}`} onClick={() => setMobileTab("analyze")}>⚡ <span>Analyze</span></button>
-        <button className={`flex flex-col items-center ${mobileTab === "memory" ? "text-indigo-400" : "text-slate-300"}`} onClick={() => setMobileTab("memory")}>🧠 <span>Memory</span></button>
-        <button className={`flex flex-col items-center ${mobileTab === "insights" ? "text-indigo-400" : "text-slate-300"}`} onClick={() => setMobileTab("insights")}>📊 <span>Insights</span></button>
-      </div>
-
-      <footer className="border-t border-slate-800 bg-[#0d1527]">
-        <div className="mx-auto grid max-w-[1600px] grid-cols-1 gap-4 px-4 py-5 text-xs text-slate-400 md:grid-cols-3 lg:px-8">
+      <footer className="border-t border-slate-200 bg-white">
+        <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-4 py-6 text-xs text-slate-500 md:grid-cols-3 lg:px-8">
           <div>
-            <p className="font-semibold text-slate-200">OpsMind AI</p>
-            <p className="mt-1">Advanced DevOps agent for incident triage, memory-backed diagnosis, and production-safe remediation.</p>
+            <p className="font-semibold text-slate-800">OpsMind AI</p>
+            <p className="mt-1.5 leading-relaxed">Production-grade incident triage and memory-safe remediation guidance.</p>
           </div>
           <div>
-            <p className="font-semibold text-slate-200">Platform</p>
-            <p className="mt-1">Learning loop active • Memory scoring • Judge scenario scorecard endpoint</p>
+            <p className="font-semibold text-slate-800">Decision framework</p>
+            <p className="mt-1.5 leading-relaxed">Context capture, memory validation, recommendation, evaluation, feedback loop.</p>
           </div>
           <div className="md:text-right">
             <p>OpsMind AI © 2026</p>
@@ -1041,50 +901,6 @@ export default function HomePage() {
           </div>
         </div>
       </footer>
-
-      {showPalette && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-24">
-          <div className="w-full max-w-xl rounded-2xl border border-slate-700 bg-[#111c34] p-4 shadow-2xl">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-400">Command Palette</p>
-            <input
-              autoFocus
-              value={commandInput}
-              onChange={(e) => setCommandInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  void applyCommand(commandInput);
-                }
-              }}
-              placeholder="Try: analyze Redis timeout after deploy"
-              className="w-full rounded-xl border border-slate-700 bg-slate-900 p-3 text-sm outline-none ring-indigo-500/40 focus:ring"
-            />
-            <div className="mt-3 flex flex-wrap gap-2">
-              {[
-                "analyze",
-                "analyze Redis timeout after deploy",
-                "memory",
-                "insights",
-                "dashboard",
-                "bootstrap",
-              ].map((cmd) => (
-                <button
-                  key={cmd}
-                  onClick={() => {
-                    setCommandInput(cmd);
-                  }}
-                  className="rounded-full border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-xs text-slate-300 hover:border-indigo-400/40"
-                >
-                  {cmd}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 flex justify-end gap-2">
-              <button className="rounded-lg border border-slate-700 px-3 py-1.5 text-sm" onClick={() => setShowPalette(false)}>Close</button>
-              <button className="rounded-lg bg-indigo-500 px-3 py-1.5 text-sm text-white" onClick={() => void applyCommand(commandInput)}>Run</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
